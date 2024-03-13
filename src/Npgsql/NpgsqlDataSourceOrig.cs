@@ -20,7 +20,7 @@ using Npgsql.Util;
 namespace Npgsql;
 
 /// <inheritdoc />
-public abstract class NpgsqlDataSource : DbDataSource
+public abstract class NpgsqlDataSourceOrig : DbDataSource
 {
     /// <inheritdoc />
     public override string ConnectionString { get; }
@@ -29,9 +29,9 @@ public abstract class NpgsqlDataSource : DbDataSource
     /// Contains the connection string returned to the user from <see cref="NpgsqlConnection.ConnectionString"/>
     /// after the connection has been opened. Does not contain the password unless Persist Security Info=true.
     /// </summary>
-    internal NpgsqlConnectionStringBuilder Settings { get; }
+    internal NpgsqlConnectionStringBuilder Settings { get; set; }
 
-    internal NpgsqlDataSourceConfiguration Configuration { get; }
+    internal NpgsqlDataSourceConfiguration Configuration { get; set; }
     internal NpgsqlLoggingConfiguration LoggingConfiguration { get; }
 
     readonly List<TypeHandlerResolverFactory> _resolverFactories;
@@ -79,7 +79,22 @@ public abstract class NpgsqlDataSource : DbDataSource
     /// </summary>
     readonly SemaphoreSlim _setupMappingsSemaphore = new(1);
 
-    internal NpgsqlDataSource(
+    /// <summary>
+    /// Constructor used by pldotnet
+    /// </summary>
+    internal NpgsqlDataSourceOrig()
+    {
+        ConnectionString = default!;
+        Settings = default!;
+        Configuration = default!;
+        LoggingConfiguration = default!;
+        _resolverFactories = default!;
+        _defaultNameTranslator = default!;
+        _userTypeMappings = default!;
+        _connectionLogger = default!;
+    }
+
+    internal NpgsqlDataSourceOrig(
         NpgsqlConnectionStringBuilder settings,
         NpgsqlDataSourceConfiguration dataSourceConfig)
     {
@@ -122,7 +137,7 @@ public abstract class NpgsqlDataSource : DbDataSource
 
     /// <inheritdoc />
     public new NpgsqlConnection CreateConnection()
-        => NpgsqlConnection.FromDataSource(this);
+        => NpgsqlConnection.FromDataSource((NpgsqlDataSource)this);
 
     /// <inheritdoc />
     public new NpgsqlConnection OpenConnection()
@@ -179,28 +194,28 @@ public abstract class NpgsqlDataSource : DbDataSource
         => CreateBatch();
 
     /// <summary>
-    /// Creates a command ready for use against this <see cref="NpgsqlDataSource" />.
+    /// Creates a command ready for use against this <see cref="NpgsqlDataSourceOrig" />.
     /// </summary>
     /// <param name="commandText">An optional SQL for the command.</param>
     public new NpgsqlCommand CreateCommand(string? commandText = null)
         => new NpgsqlDataSourceCommand(CreateConnection()) { CommandText = commandText };
 
     /// <summary>
-    /// Creates a batch ready for use against this <see cref="NpgsqlDataSource" />.
+    /// Creates a batch ready for use against this <see cref="NpgsqlDataSourceOrig" />.
     /// </summary>
     public new NpgsqlBatch CreateBatch()
         => new NpgsqlDataSourceBatch(CreateConnection());
 
     /// <summary>
-    /// Creates a new <see cref="NpgsqlDataSource" /> for the given <paramref name="connectionString" />.
+    /// Creates a new <see cref="NpgsqlDataSourceOrig" /> for the given <paramref name="connectionString" />.
     /// </summary>
-    public static NpgsqlDataSource Create(string connectionString)
+    public static NpgsqlDataSourceOrig Create(string connectionString)
         => new NpgsqlDataSourceBuilder(connectionString).Build();
 
     /// <summary>
-    /// Creates a new <see cref="NpgsqlDataSource" /> for the given <paramref name="connectionStringBuilder" />.
+    /// Creates a new <see cref="NpgsqlDataSourceOrig" /> for the given <paramref name="connectionStringBuilder" />.
     /// </summary>
-    public static NpgsqlDataSource Create(NpgsqlConnectionStringBuilder connectionStringBuilder)
+    public static NpgsqlDataSourceOrig Create(NpgsqlConnectionStringBuilder connectionStringBuilder)
         => Create(connectionStringBuilder.ToString());
 
     internal async Task Bootstrap(
@@ -338,7 +353,7 @@ public abstract class NpgsqlDataSource : DbDataSource
         Debug.Assert(this is not NpgsqlMultiHostDataSource);
 
         var databaseStateInfo = _databaseStateInfo;
-        
+
         if (!ignoreTimeStamp && timeStamp <= databaseStateInfo.TimeStamp)
             return _databaseStateInfo.State;
 
@@ -433,7 +448,7 @@ public abstract class NpgsqlDataSource : DbDataSource
     }
 
     #endregion
-    
+
     class DatabaseStateInfo
     {
         internal readonly DatabaseState State;
@@ -442,7 +457,7 @@ public abstract class NpgsqlDataSource : DbDataSource
         internal readonly DateTime TimeStamp;
 
         public DatabaseStateInfo() : this(default, default, default) {}
-        
+
         public DatabaseStateInfo(DatabaseState state, NpgsqlTimeout timeout, DateTime timeStamp)
             => (State, Timeout, TimeStamp) = (state, timeout, timeStamp);
     }

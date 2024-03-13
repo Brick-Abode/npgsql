@@ -287,6 +287,9 @@ partial class NpgsqlConnector
 #if NET7_0_OR_GREATER
     async Task AuthenticateGSS(bool async)
     {
+        if (!IntegratedSecurity)
+            throw new NpgsqlException("GSS/SSPI authentication but IntegratedSecurity not enabled");
+
         var targetName = $"{KerberosServiceName}/{Host}";
 
         using var authContext = new NegotiateAuthentication(new NegotiateAuthenticationClientOptions{ TargetName = targetName});

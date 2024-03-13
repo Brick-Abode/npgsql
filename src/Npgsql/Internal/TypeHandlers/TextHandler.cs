@@ -23,7 +23,7 @@ namespace Npgsql.Internal.TypeHandlers;
 /// Use it at your own risk.
 /// </remarks>
 public partial class TextHandler : NpgsqlTypeHandler<string>, INpgsqlTypeHandler<char[]>, INpgsqlTypeHandler<ArraySegment<char>>,
-    INpgsqlTypeHandler<char>, INpgsqlTypeHandler<byte[]>, INpgsqlTypeHandler<ReadOnlyMemory<byte>>, ITextReaderHandler
+    INpgsqlTypeHandler<char>, INpgsqlTypeHandler<byte[]>, ITextReaderHandler
 {
     // Text types are handled a bit more efficiently when sent as text than as binary
     // see https://github.com/npgsql/npgsql/issues/1210#issuecomment-235641670
@@ -182,9 +182,6 @@ public partial class TextHandler : NpgsqlTypeHandler<string>, INpgsqlTypeHandler
             return bytes;
         }
     }
-    
-    ValueTask<ReadOnlyMemory<byte>> INpgsqlTypeHandler<ReadOnlyMemory<byte>>.Read(NpgsqlReadBuffer buf, int len, bool async, FieldDescription? fieldDescription)
-        => throw new NotSupportedException("Only writing ReadOnlyMemory<byte> to PostgreSQL text is supported, no reading.");
 
     #endregion
 
@@ -248,10 +245,6 @@ public partial class TextHandler : NpgsqlTypeHandler<string>, INpgsqlTypeHandler
         => value.Length;
 
     /// <inheritdoc />
-    public int ValidateAndGetLength(ReadOnlyMemory<byte> value, ref NpgsqlLengthCache? lengthCache, NpgsqlParameter? parameter)
-        => value.Length;
-
-    /// <inheritdoc />
     public override Task Write(string value, NpgsqlWriteBuffer buf, NpgsqlLengthCache? lengthCache, NpgsqlParameter? parameter, bool async, CancellationToken cancellationToken = default)
         => WriteString(value, buf, lengthCache!, parameter, async, cancellationToken);
 
@@ -297,13 +290,8 @@ public partial class TextHandler : NpgsqlTypeHandler<string>, INpgsqlTypeHandler
         }
     }
 
-
-    public Task Write(byte[] value, NpgsqlWriteBuffer buf, NpgsqlLengthCache? lengthCache, NpgsqlParameter? parameter, bool async,
-        CancellationToken cancellationToken = default)
-        => buf.WriteBytesRaw(value, async, cancellationToken);
-
-    public Task Write(ReadOnlyMemory<byte> value, NpgsqlWriteBuffer buf, NpgsqlLengthCache? lengthCache, NpgsqlParameter? parameter, bool async,
-        CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public Task Write(byte[] value, NpgsqlWriteBuffer buf, NpgsqlLengthCache? lengthCache, NpgsqlParameter? parameter, bool async, CancellationToken cancellationToken = default)
         => buf.WriteBytesRaw(value, async, cancellationToken);
 
     #endregion

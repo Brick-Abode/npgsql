@@ -21,8 +21,8 @@ namespace Npgsql.BackendMessages;
 /// </remarks>
 sealed class RowDescriptionMessage : IBackendMessage, IReadOnlyList<FieldDescription>
 {
-    FieldDescription?[] _fields;
-    readonly Dictionary<string, int> _nameIndex;
+    internal FieldDescription?[] _fields;
+    internal readonly Dictionary<string, int> _nameIndex;
     Dictionary<string, int>? _insensitiveIndex;
 
     internal RowDescriptionMessage(int numFields = 10)
@@ -116,7 +116,7 @@ sealed class RowDescriptionMessage : IBackendMessage, IReadOnlyList<FieldDescrip
         }
     }
 
-    public int Count { get; private set; }
+    public int Count { get; internal set; }
 
     public IEnumerator<FieldDescription> GetEnumerator() => new Enumerator(this);
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();

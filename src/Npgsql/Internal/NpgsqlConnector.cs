@@ -312,6 +312,28 @@ public sealed partial class NpgsqlConnector : IDisposable
 
     #region Constructors
 
+    /// <summary>
+    /// Fake constructor used by pldotnet.
+    /// </summary>
+    internal NpgsqlConnector()
+    {
+        DataSource = default!;
+        LoggingConfiguration =  default!;
+        ConnectionLogger =  default!;
+        CommandLogger = default!;
+        TransactionLogger = default!;
+        CopyLogger = default!;
+        ClientCertificatesCallback = default!;
+        UserCertificateValidationCallback = default!;
+        State = ConnectorState.Closed;
+        TransactionStatus = TransactionStatus.Idle;
+        Settings = default!;
+        PostgresParameters = new Dictionary<string, string>();
+        DataReader = default!;
+        PreparedStatementManager = default!;
+        CancelLock = default!;
+    }
+
     internal NpgsqlConnector(NpgsqlDataSource dataSource, NpgsqlConnection conn)
         : this(dataSource)
     {
@@ -358,7 +380,7 @@ public sealed partial class NpgsqlConnector : IDisposable
         _isKeepAliveEnabled = Settings.KeepAlive > 0;
         if (_isKeepAliveEnabled)
             _keepAliveTimer = new Timer(PerformKeepAlive, null, Timeout.Infinite, Timeout.Infinite);
-        
+
         DataReader = new NpgsqlDataReader(this);
 
         // TODO: Not just for automatic preparation anymore...
@@ -392,6 +414,7 @@ public sealed partial class NpgsqlConnector : IDisposable
     internal string Database => Settings.Database!;
     string KerberosServiceName => Settings.KerberosServiceName;
     int ConnectionTimeout => Settings.Timeout;
+    bool IntegratedSecurity => Settings.IntegratedSecurity;
 
     /// <summary>
     /// The actual command timeout value that gets set on internal commands.
@@ -636,7 +659,7 @@ public sealed partial class NpgsqlConnector : IDisposable
                 reader.NextResult();
                 reader.Read();
             }
-                
+
             _isTransactionReadOnly = reader.GetString(0) != "off";
 
             var databaseState = UpdateDatabaseState();
@@ -2003,7 +2026,7 @@ public sealed partial class NpgsqlConnector : IDisposable
             return reason;
         }
     }
-        
+
     void FullCleanup()
     {
         Debug.Assert(Monitor.IsEntered(this));

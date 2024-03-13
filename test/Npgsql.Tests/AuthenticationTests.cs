@@ -18,7 +18,7 @@ public class AuthenticationTests : MultiplexingTestBase
     [NonParallelizable] // Sets environment variable
     public async Task Connect_UserNameFromEnvironment_Succeeds()
     {
-        var builder = new NpgsqlConnectionStringBuilder(ConnectionString);
+        var builder = new NpgsqlConnectionStringBuilder(ConnectionString) { IntegratedSecurity = false };
         using var _ = SetEnvironmentVariable("PGUSER", builder.Username);
         builder.Username = null;
         using var __ = CreateTempPool(builder.ConnectionString, out var connectionString);
@@ -29,7 +29,7 @@ public class AuthenticationTests : MultiplexingTestBase
     [NonParallelizable] // Sets environment variable
     public async Task Connect_PasswordFromEnvironment_Succeeds()
     {
-        var builder = new NpgsqlConnectionStringBuilder(ConnectionString);
+        var builder = new NpgsqlConnectionStringBuilder(ConnectionString) { IntegratedSecurity = false };
         using var _ = SetEnvironmentVariable("PGPASSWORD", builder.Password);
         builder.Password = null;
         using var __ = CreateTempPool(builder.ConnectionString, out var connectionString);
@@ -279,6 +279,7 @@ public class AuthenticationTests : MultiplexingTestBase
         {
             builder.Password = password;
             builder.Passfile = passFile;
+            builder.IntegratedSecurity = false;
             builder.ApplicationName = $"{nameof(Password_source_precedence)}:{Guid.NewGuid()}";
 
             using var pool = CreateTempPool(builder.ConnectionString, out var connectionString);
@@ -340,10 +341,7 @@ public class AuthenticationTests : MultiplexingTestBase
     public async Task AuthenticateIntegratedSecurity()
     {
         await using var dataSource = NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            Username = null,
-            Password = null
-        });
+            { IntegratedSecurity = true, Username = null, Password = null });
         await using var c = await  dataSource.OpenConnectionAsync();
         Assert.That(c.State, Is.EqualTo(ConnectionState.Open));
     }

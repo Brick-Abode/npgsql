@@ -1,6 +1,4 @@
 using System;
-using Npgsql;
-using Npgsql.TypeMapping;
 
 #pragma warning disable CA1720
 
@@ -9,7 +7,7 @@ namespace NpgsqlTypes;
 
 /// <summary>
 /// Represents a PostgreSQL data type that can be written or read to the database.
-/// Used in places such as <see cref="NpgsqlParameter.NpgsqlDbType"/> to unambiguously specify
+/// Used in places such as NpgsqlParameter.NpgsqlDbType to unambiguously specify
 /// how to encode or decode values.
 /// </summary>
 /// <remarks>
@@ -639,25 +637,52 @@ public enum NpgsqlDbType
 /// Represents a built-in PostgreSQL type as it appears in pg_type, including its name and OID.
 /// Extension types with variable OIDs are not represented.
 /// </summary>
-sealed class BuiltInPostgresType : Attribute
+public sealed class BuiltInPostgresType : Attribute
 {
-    internal string Name { get; }
-    internal uint BaseOID { get; }
-    internal uint ArrayOID { get; }
+    /// <summary>
+    /// Name Attribute
+    /// </summary>
+    public string Name { get; }
+    /// <summary>
+    /// BaseOID Attribute
+    /// </summary>
+    public uint BaseOID { get; }
+    /// <summary>
+    /// ArrayOID Attribute
+    /// </summary>
+    public uint ArrayOID { get; }
 
-    internal string? RangeName { get; }
-    internal uint RangeOID { get; }
-    internal string? MultirangeName { get; }
-    internal uint MultirangeOID { get; }
+    /// <summary>
+    /// RangeName Attribute
+    /// </summary>
+    public string? RangeName { get; }
+    /// <summary>
+    /// RangeOID Attribute
+    /// </summary>
+    public uint RangeOID { get; }
+    /// <summary>
+    /// MultirangeName Attribute
+    /// </summary>
+    public string? MultirangeName { get; }
+    /// <summary>
+    /// MultirangeOID Attribute
+    /// </summary>
+    public uint MultirangeOID { get; }
 
-    internal BuiltInPostgresType(string name, uint baseOID, uint arrayOID)
+    /// <summary>
+    /// Constructor with less attributes
+    /// </summary>
+    public BuiltInPostgresType(string name, uint baseOID, uint arrayOID)
     {
         Name = name;
         BaseOID = baseOID;
         ArrayOID = arrayOID;
     }
 
-    internal BuiltInPostgresType(
+    /// <summary>
+    /// Constructor with more attributes
+    /// </summary>
+    public BuiltInPostgresType(
         string name, uint baseOID, uint arrayOID, string rangeName, uint rangeOID, string multirangeName, uint multirangeOID)
     {
         Name = name;

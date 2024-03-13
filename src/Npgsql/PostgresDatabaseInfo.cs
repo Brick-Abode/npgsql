@@ -109,7 +109,7 @@ class PostgresDatabaseInfo : NpgsqlDatabaseInfo
     /// For arrays and ranges, join in the element OID and type (to filter out arrays of unhandled
     /// types).
     /// </remarks>
-    static string GenerateLoadTypesQuery(bool withRange, bool withMultirange, bool loadTableComposites)
+    internal static string GenerateLoadTypesQuery(bool withRange, bool withMultirange, bool loadTableComposites)
         => $@"
 SELECT ns.nspname, t.oid, t.typname, t.typtype, t.typnotnull, t.elemtypoid
 FROM (

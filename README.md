@@ -1,49 +1,35 @@
-# Npgsql - the .NET data provider for PostgreSQL
+# Npgsql for PL/.NET
 
-[![stable](https://img.shields.io/nuget/v/Npgsql.svg?label=stable)](https://www.nuget.org/packages/Npgsql/)
-[![next patch](https://img.shields.io/myget/npgsql/v/npgsql.svg?label=next%20patch)](https://www.myget.org/feed/npgsql/package/nuget/Npgsql)
-[![daily builds (vnext)](https://img.shields.io/myget/npgsql-vnext/v/npgsql.svg?label=vnext)](https://www.myget.org/feed/npgsql-vnext/package/nuget/Npgsql)
-[![build](https://github.com/npgsql/npgsql/actions/workflows/build.yml/badge.svg)](https://github.com/npgsql/npgsql/actions/workflows/build.yml)
-[![gitter](https://img.shields.io/badge/gitter-join%20chat-brightgreen.svg)](https://gitter.im/npgsql/npgsql)
+This fork of Npgsql is a submodule for the [PL/.NET](https://github.com/Brick-Abode/pldotnet) project.
+
+## What is pl/dotnet?
+
+The pl/dotnet project extends PostgreSQL to support functions, stored procedures and `DO` blocks for the dotnet platform, including both C# and F#.
+
+### Where can I get the source code for pl/dotnet?
+
+The official repository for pl/dotnet is [https://github.com/Brick-Abode/pldotnet/](https://github.com/Brick-Abode/pldotnet/).
+
+### Where can I read the documentation for pl/dotnet?
+
+Our project wiki is at [https://github.com/Brick-Abode/pldotnet/wiki](https://github.com/Brick-Abode/pldotnet/wiki).
+
+### Is there a white paper explaining the project?
+
+Yes, you can find the [whitepaper on our wiki](https://github.com/Brick-Abode/pldotnet/wiki/pldotnet:-White-Paper).
 
 ## What is Npgsql?
 
 Npgsql is the open source .NET data provider for PostgreSQL. It allows you to connect and interact with PostgreSQL server using .NET.
 
-For the full documentation, please visit [the Npgsql website](https://www.npgsql.org). For the Entity Framework Core provider that works with this provider, see [Npgsql.EntityFrameworkCore.PostgreSQL](https://github.com/npgsql/efcore.pg).
+For the full documentation, please visit [the Npgsql website](https://www.npgsql.org).
 
-## Quickstart
+## How does pl/dotnet make use of Npgsql?
 
-Here's a basic code snippet to get you started:
+pl/dotnet embraced Npgsql as our PostgreSQL compatibility layer to provide maximum transparency and ease in migrating code between a database client and the database server.
 
-```csharp
-var connString = "Host=myserver;Username=mylogin;Password=mypass;Database=mydatabase";
+pl/dotnet uses Npgsql to map PostgreSQL data types to .NET data types.  Our implementation of SPI (database access within the stored procedure) is also based on Npgsql.
 
-await using var conn = new NpgsqlConnection(connString);
-await conn.OpenAsync();
+pl/dotnet incorporates Npgsql with minor, low-level modifications.  We make use of Npgsql's own regression test suite and are working towards perfect compatibility with it.
 
-// Insert some data
-await using (var cmd = new NpgsqlCommand("INSERT INTO data (some_field) VALUES (@p)", conn))
-{
-    cmd.Parameters.AddWithValue("p", "Hello world");
-    await cmd.ExecuteNonQueryAsync();
-}
-
-// Retrieve all rows
-await using (var cmd = new NpgsqlCommand("SELECT some_field FROM data", conn))
-await using (var reader = await cmd.ExecuteReaderAsync())
-{
-    while (await reader.ReadAsync())
-        Console.WriteLine(reader.GetString(0));
-}
-```
-
-## Key features
-
-* High-performance PostgreSQL driver. Regularly figures in the top contenders on the [TechEmpower Web Framework Benchmarks](https://www.techempower.com/benchmarks/).
-* Full support of most PostgreSQL types, including advanced ones such as arrays, enums, ranges, multiranges, composites, JSON, PostGIS and others.
-* Highly-efficient bulk import/export API.
-* Failover, load balancing and general multi-host support.
-* Great integration with Entity Framework Core via [Npgsql.EntityFrameworkCore.PostgreSQL](https://www.nuget.org/packages/Npgsql.EntityFrameworkCore.PostgreSQL).
-
-For the full documentation, please visit the Npgsql website at [https://www.npgsql.org](https://www.npgsql.org).
+We are very grateful to the authors of Npgsql, as their work forms an integral piece of our own project.

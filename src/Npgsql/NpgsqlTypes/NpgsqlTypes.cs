@@ -5,14 +5,26 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
-using Npgsql.Util;
 
 #pragma warning disable 1591
 
 // ReSharper disable once CheckNamespace
 namespace NpgsqlTypes;
+
+/// <summary>
+/// Partial class added to avoid importing all the PGUtil here.
+/// </summary>
+static partial class PGUtil
+{
+    public const int BitsInInt = sizeof(int) * 8;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int RotateShift(int val, int shift)
+        => (val << shift) | (val >> (BitsInInt - shift));
+}
 
 /// <summary>
 /// Represents a PostgreSQL point type.
