@@ -70,6 +70,7 @@ public class NpgsqlException : DbException
     /// </summary>
     /// <param name="info">The SerializationInfo that holds the serialized object data about the exception being thrown.</param>
     /// <param name="context">The StreamingContext that contains contextual information about the source or destination.</param>
+    [Obsolete(DiagnosticId = "SYSLIB0051")]
     protected internal NpgsqlException(SerializationInfo info, StreamingContext context) : base(info, context) {}
 
     #endregion

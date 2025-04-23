@@ -110,6 +110,7 @@ public sealed class PostgresException : NpgsqlException
     internal static PostgresException Load(NpgsqlReadBuffer buf, bool includeDetail, ILogger exceptionLogger)
         => new(ErrorOrNoticeMessage.Load(buf, includeDetail, exceptionLogger));
 
+    [Obsolete(DiagnosticId = "SYSLIB0051")]
     internal PostgresException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
@@ -140,6 +141,7 @@ public sealed class PostgresException : NpgsqlException
     /// </summary>
     /// <param name="info">The <see cref="SerializationInfo"/> to populate with data.</param>
     /// <param name="context">The destination (see <see cref="StreamingContext"/>) for this serialization.</param>
+    [Obsolete]
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
         base.GetObjectData(info, context);

@@ -525,7 +525,7 @@ public sealed partial class NpgsqlConnector : IDisposable
                     .ContinueWith(t =>
                     {
                         // Note that we *must* observe the exception if the task is faulted.
-                        ConnectionLogger.LogError(t.Exception!, "Exception bubbled out of multiplexing read loop", Id);
+                        ConnectionLogger.LogError(t.Exception!, "Exception bubbled out of multiplexing read loop {Id}", Id);
                     }, TaskContinuationOptions.OnlyOnFaulted);
             }
 
@@ -827,14 +827,14 @@ public sealed partial class NpgsqlConnector : IDisposable
                                 // Windows crypto API has a bug with pem certs
                                 // See #3650
                                 using var previousCert = cert;
-                                cert = new X509Certificate2(cert.Export(X509ContentType.Pkcs12));
+                                cert = X509CertificateLoader.LoadCertificate(cert.Export(X509ContentType.Pkcs12));
                             }
 #else
                             throw new NotSupportedException("PEM certificates are only supported with .NET 5 and higher");
 #endif
                         }
 
-                        cert ??= new X509Certificate2(certPath, password);
+                        cert ??= X509CertificateLoader.LoadCertificateFromFile(certPath);
                         clientCertificates.Add(cert);
                     }
 
@@ -1197,7 +1197,7 @@ public sealed partial class NpgsqlConnector : IDisposable
                 }
             }
 
-            ConnectionLogger.LogTrace("Exiting multiplexing read loop", Id);
+            ConnectionLogger.LogTrace("Exiting multiplexing read loop {Id}", Id);
         }
         catch (Exception e)
         {
@@ -1232,7 +1232,7 @@ public sealed partial class NpgsqlConnector : IDisposable
             // "Return" the connector to the pool to for cleanup (e.g. update total connector count)
             DataSource.Return(this);
 
-            ConnectionLogger.LogError(e, "Exception in multiplexing read loop", Id);
+            ConnectionLogger.LogError(e, "Exception in multiplexing read loop {Id}", Id);
         }
 
         Debug.Assert(CommandsInFlightCount == 0);
@@ -1558,7 +1558,7 @@ public sealed partial class NpgsqlConnector : IDisposable
 
     internal Task Rollback(bool async, CancellationToken cancellationToken = default)
     {
-        ConnectionLogger.LogDebug("Rolling back transaction", Id);
+        ConnectionLogger.LogDebug("Rolling back transaction {Id}", Id);
         return ExecuteInternalCommand(PregeneratedMessages.RollbackTransaction, async, cancellationToken);
     }
 
@@ -1668,7 +1668,7 @@ public sealed partial class NpgsqlConnector : IDisposable
 #endif
 
             if (certs.Count == 0)
-                certs.Add(new X509Certificate2(certRootPath));
+                certs.Add(X509CertificateLoader.LoadCertificateFromFile(certRootPath));
 
 #if NET5_0_OR_GREATER
             chain.ChainPolicy.CustomTrustStore.AddRange(certs);
@@ -1774,7 +1774,7 @@ public sealed partial class NpgsqlConnector : IDisposable
                 var socketException = e.InnerException as SocketException;
                 if (socketException == null || socketException.SocketErrorCode != SocketError.ConnectionReset)
                 {
-                    ConnectionLogger.LogDebug(e, "Exception caught while attempting to cancel command", Id);
+                    ConnectionLogger.LogDebug(e, "Exception caught while attempting to cancel command {Id}", Id);
                     return false;
                 }
             }
@@ -1889,7 +1889,7 @@ public sealed partial class NpgsqlConnector : IDisposable
                 }
                 catch (Exception e)
                 {
-                    CopyLogger.LogWarning(e, "Error while cancelling COPY on connector close", Id);
+                    CopyLogger.LogWarning(e, "Error while cancelling COPY on connector close {Id}", Id);
                 }
             }
 
@@ -1902,7 +1902,7 @@ public sealed partial class NpgsqlConnector : IDisposable
             }
             catch (Exception e)
             {
-                CopyLogger.LogWarning(e, "Error while disposing cancelled COPY on connector close", Id);
+                CopyLogger.LogWarning(e, "Error while disposing cancelled COPY on connector close {Id}", Id);
             }
         }
     }
@@ -1927,7 +1927,7 @@ public sealed partial class NpgsqlConnector : IDisposable
                 }
                 catch (Exception e)
                 {
-                    ConnectionLogger.LogError(e, "Exception while closing connector", Id);
+                    ConnectionLogger.LogError(e, "Exception while closing connector {Id}", Id);
                     Debug.Assert(IsBroken);
                 }
             }
@@ -2044,7 +2044,7 @@ public sealed partial class NpgsqlConnector : IDisposable
             // (see Open)
         }
 
-        ConnectionLogger.LogTrace("Cleaning up connector", Id);
+        ConnectionLogger.LogTrace("Cleaning up connector {Id}", Id);
         Cleanup();
 
         if (_isKeepAliveEnabled)
@@ -2444,7 +2444,7 @@ public sealed partial class NpgsqlConnector : IDisposable
             }
             catch (Exception e2)
             {
-                ConnectionLogger.LogError(e2, "Further exception while breaking connector on keepalive failure", Id);
+                ConnectionLogger.LogError(e2, "Further exception while breaking connector on keepalive failure {Id}", Id);
             }
         }
         finally

@@ -19,7 +19,9 @@ public class LargeObjectTests : TestBase
             stream.Write(buf, 0, buf.Length);
             stream.Seek(0, System.IO.SeekOrigin.Begin);
             var buf2 = new byte[buf.Length];
+#pragma warning disable CA2022 // Avoid inexact read with 'Stream.Read'
             stream.Read(buf2, 0, buf2.Length);
+#pragma warning restore CA2022 // Avoid inexact read with 'Stream.Read'
             Assert.That(buf.SequenceEqual(buf2));
 
             Assert.AreEqual(5, stream.Position);

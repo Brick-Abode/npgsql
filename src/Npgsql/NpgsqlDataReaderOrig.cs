@@ -1189,7 +1189,7 @@ public class NpgsqlDataReaderOrig : DbDataReader, IDbColumnSchemaGenerator
                 catch (Exception e)
                 {
                     // TODO: think of a better way to handle exceptions, see #1323 and #3163
-                    _commandLogger.LogDebug(e, "Exception caught while sending the request", Connector.Id);
+                    _commandLogger.LogDebug(e, "Exception caught while sending the request {Id}", Connector.Id);
                 }
             }
         }

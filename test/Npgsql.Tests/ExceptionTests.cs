@@ -221,6 +221,7 @@ $$ LANGUAGE 'plpgsql';");
         PostgresException CreateWithSqlState(string sqlState)
         {
             var info = CreateSerializationInfo();
+            #pragma warning disable SYSLIB0051
             new Exception().GetObjectData(info, default);
 
             info.AddValue(nameof(PostgresException.Severity), null);
@@ -282,6 +283,7 @@ $$ LANGUAGE 'plpgsql';");
         Assert.That(expected.Routine, Is.EqualTo(actual.Routine));
     }
 
+#pragma warning disable SYSLIB0050
     SerializationInfo CreateSerializationInfo() => new(typeof(PostgresException), new FormatterConverter());
 #pragma warning restore 618
 #pragma warning restore SYSLIB0011
