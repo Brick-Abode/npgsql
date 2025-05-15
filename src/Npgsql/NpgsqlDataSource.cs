@@ -17,6 +17,7 @@ using Npgsql;
 using NpgsqlDataSourcePlDotNET = Npgsql.NpgsqlDataSource;
 using NpgsqlCommandPlDotNET = Npgsql.NpgsqlCommand;
 using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
+using NpgsqlDataSourceBuilderPlDotNET = Npgsql.NpgsqlDataSourceBuilder;
 
 namespace Npgsql.Original;
 
@@ -241,7 +242,7 @@ public abstract class NpgsqlDataSource : DbDataSource
     /// Creates a new <see cref="NpgsqlDataSource" /> for the given <paramref name="connectionString" />.
     /// </summary>
     public static NpgsqlDataSource Create(string connectionString)
-        => new NpgsqlDataSourceBuilder(connectionString).Build();
+        => new NpgsqlDataSourceBuilderPlDotNET(connectionString).Build();
 
     /// <summary>
     /// Creates a new <see cref="NpgsqlDataSource" /> for the given <paramref name="connectionStringBuilder" />.
@@ -342,7 +343,7 @@ public abstract class NpgsqlDataSource : DbDataSource
 
     /// <summary>
     /// Manually sets the password to be used the next time a physical connection is opened.
-    /// Consider using <see cref="NpgsqlDataSourceBuilder.UsePeriodicPasswordProvider" /> instead.
+    /// Consider using <see cref="NpgsqlDataSourceBuilderPlDotNET.UsePeriodicPasswordProvider" /> instead.
     /// </summary>
     public string Password
     {
@@ -529,7 +530,7 @@ public abstract class NpgsqlDataSource : DbDataSource
     }
 
     /// <inheritdoc />
-    protected sealed override ValueTask DisposeAsyncCore()
+    protected override ValueTask DisposeAsyncCore()
     {
         if (Interlocked.CompareExchange(ref _isDisposed, 1, 0) == 0)
             return DisposeAsyncBase();

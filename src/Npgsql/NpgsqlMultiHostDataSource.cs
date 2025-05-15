@@ -12,11 +12,12 @@ using Npgsql;
 
 using NpgsqlMultiHostDataSourcePlotNET = Npgsql.NpgsqlMultiHostDataSource;
 using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
+using NpgsqlDataSourcePlDotNET = Npgsql.NpgsqlDataSource;
 
 namespace Npgsql.Original;
 
 /// <summary>
-/// An <see cref="NpgsqlDataSource" /> which manages connections for multiple hosts, is aware of their states (primary, secondary,
+/// An <see cref="NpgsqlDataSourcePlDotNET" /> which manages connections for multiple hosts, is aware of their states (primary, secondary,
 /// offline...) and can perform failover and load balancing across them.
 /// </summary>
 /// <remarks>
@@ -26,9 +27,9 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlMultiHostDataSourcePlotNET
 {
     internal override bool OwnsConnectors => false;
 
-    readonly NpgsqlDataSource[] _pools;
+    readonly NpgsqlDataSourcePlDotNET[] _pools;
 
-    internal NpgsqlDataSource[] Pools => _pools;
+    internal NpgsqlDataSourcePlDotNET[] Pools => _pools;
 
     readonly MultiHostDataSourceWrapper[] _wrappers;
 
@@ -48,7 +49,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlMultiHostDataSourcePlotNET
         : base(settings, dataSourceConfig)
     {
         var hosts = settings.Host!.Split(',');
-        _pools = new NpgsqlDataSource[hosts.Length];
+        _pools = new NpgsqlDataSourcePlDotNET[hosts.Length];
         for (var i = 0; i < hosts.Length; i++)
         {
             var poolSettings = settings.Clone();
@@ -131,10 +132,10 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlMultiHostDataSourcePlotNET
     }
 
     /// <summary>
-    /// Returns an <see cref="NpgsqlDataSource" /> that wraps this multi-host one with the given server type.
+    /// Returns an <see cref="NpgsqlDataSourceOrig" /> that wraps this multi-host one with the given server type.
     /// </summary>
     /// <param name="targetSessionAttributes">Specifies the server type (e.g. primary, standby).</param>
-    public NpgsqlDataSource WithTargetSession(TargetSessionAttributes targetSessionAttributes)
+    public NpgsqlDataSourcePlDotNET WithTargetSession(TargetSessionAttributes targetSessionAttributes)
         => _wrappers[(int)targetSessionAttributes];
 
     static bool IsPreferred(DatabaseState state, TargetSessionAttributes preferredType)

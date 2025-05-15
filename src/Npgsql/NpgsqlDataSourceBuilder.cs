@@ -21,9 +21,9 @@ using NpgsqlMultiHostDataSourcePlDotNET = Npgsql.NpgsqlMultiHostDataSource;
 namespace Npgsql.Original;
 
 /// <summary>
-/// Provides a simple API for configuring and creating an <see cref="NpgsqlDataSource" />, from which database connections can be obtained.
+/// Provides a simple API for configuring and creating an <see cref="NpgsqlDataSourcePlDotNET" />, from which database connections can be obtained.
 /// </summary>
-public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
+public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
 {
     static UnsupportedTypeInfoResolver<NpgsqlDataSourceBuilder> UnsupportedTypeInfoResolver { get; } = new();
 
@@ -562,7 +562,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     }
 
     /// <summary>
-    /// Builds and returns an <see cref="NpgsqlDataSource" /> which is ready for use.
+    /// Builds and returns an <see cref="NpgsqlDataSourcePlDotNET" /> which is ready for use.
     /// </summary>
     public NpgsqlDataSourcePlDotNET Build()
         => _internalBuilder.Build();

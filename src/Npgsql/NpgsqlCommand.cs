@@ -21,6 +21,7 @@ using System.Collections;
 
 using NpgsqlCommandPlDotNET = Npgsql.NpgsqlCommand;
 using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
+using NpgsqlTransactionPlDotNET = Npgsql.NpgsqlTransaction;
 
 namespace Npgsql.Original;
 
@@ -34,7 +35,7 @@ public class NpgsqlCommand : DbCommand, ICloneable, IComponent
 {
     #region Fields
 
-    NpgsqlTransaction? _transaction;
+    NpgsqlTransactionPlDotNET? _transaction;
 
     internal readonly NpgsqlConnector? _connector;
 
@@ -131,12 +132,12 @@ public class NpgsqlCommand : DbCommand, ICloneable, IComponent
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NpgsqlCommandPlDotNET"/> class with the text of the query, a
-    /// <see cref="NpgsqlConnectionPlDotNET"/>, and the <see cref="NpgsqlTransaction"/>.
+    /// <see cref="NpgsqlConnectionPlDotNET"/>, and the <see cref="NpgsqlTransactionOrig"/>.
     /// </summary>
     /// <param name="cmdText">The text of the query.</param>
     /// <param name="connection">A <see cref="NpgsqlConnectionPlDotNET"/> that represents the connection to a PostgreSQL server.</param>
-    /// <param name="transaction">The <see cref="NpgsqlTransaction"/> in which the <see cref="NpgsqlCommandPlDotNET"/> executes.</param>
-    public NpgsqlCommand(string? cmdText, NpgsqlConnectionPlDotNET? connection, NpgsqlTransaction? transaction)
+    /// <param name="transaction">The <see cref="NpgsqlTransactionOrig"/> in which the <see cref="NpgsqlCommandPlDotNET"/> executes.</param>
+    public NpgsqlCommand(string? cmdText, NpgsqlConnectionPlDotNET? connection, NpgsqlTransactionPlDotNET? transaction)
         : this(cmdText, connection)
         => Transaction = transaction;
 
@@ -710,7 +711,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
         // It's possible the command was already prepared, or that persistent prepared statements were found for
         // all statements. Nothing to do here, move along.
         return needToPrepare
-            ? PrepareLong(this, async, connector, cancellationToken)
+            ? PrepareLong((NpgsqlCommandPlDotNET)this, async, connector, cancellationToken)
             : Task.CompletedTask;
 
         static async Task PrepareLong(NpgsqlCommandPlDotNET command, bool async, NpgsqlConnector connector, CancellationToken cancellationToken)
@@ -1599,7 +1600,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
                 conn.ConnectorBindingScope = ConnectorBindingScope.Reader;
 
                 var reader = connector.DataReader;
-                reader.Init(this, behavior, InternalBatchCommands);
+                reader.Init((NpgsqlCommandPlDotNET)this, behavior, InternalBatchCommands);
                 connector.CurrentReader = reader;
                 await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1639,7 +1640,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
     protected override DbTransaction? DbTransaction
     {
         get => _transaction;
-        set => _transaction = (NpgsqlTransaction?)value;
+        set => _transaction = (NpgsqlTransactionPlDotNET?)value;
     }
 
     /// <summary>
@@ -1647,9 +1648,9 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
     /// a given connection, and all commands implicitly run inside the current transaction started via
     /// <see cref="NpgsqlConnectionPlDotNET.BeginTransaction()"/>
     /// </summary>
-    public new NpgsqlTransaction? Transaction
+    public new NpgsqlTransactionPlDotNET? Transaction
     {
-        get => (NpgsqlTransaction?)DbTransaction;
+        get => (NpgsqlTransactionPlDotNET?)DbTransaction;
         set => DbTransaction = value;
     }
 
@@ -1687,7 +1688,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
         if (IsCacheable && InternalConnection is not null && InternalConnection.CachedCommand is null)
         {
             Reset();
-            InternalConnection.CachedCommand = this;
+            InternalConnection.CachedCommand = (NpgsqlCommandPlDotNET)this;
             return;
         }
 
