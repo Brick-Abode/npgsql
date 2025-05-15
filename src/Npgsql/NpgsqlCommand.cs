@@ -22,6 +22,7 @@ using System.Collections;
 using NpgsqlCommandPlDotNET = Npgsql.NpgsqlCommand;
 using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
 using NpgsqlTransactionPlDotNET = Npgsql.NpgsqlTransaction;
+using NpgsqlDataReaderPlDotNET = Npgsql.NpgsqlDataReader;
 
 namespace Npgsql.Original;
 
@@ -37,7 +38,7 @@ public class NpgsqlCommand : DbCommand, ICloneable, IComponent
 
     NpgsqlTransactionPlDotNET? _transaction;
 
-    internal readonly NpgsqlConnector? _connector;
+    internal NpgsqlConnector? _connector;
 
     /// <summary>
     /// If this command is (explicitly) prepared, references the connector on which the preparation happened.
@@ -46,7 +47,7 @@ public class NpgsqlCommand : DbCommand, ICloneable, IComponent
     /// </summary>
     NpgsqlConnector? _connectorPreparedOn;
 
-    string _commandText;
+    internal string _commandText;
     CommandBehavior _behavior;
     int? _timeout;
     internal NpgsqlParameterCollection? _parameters;
@@ -1343,7 +1344,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
     /// </summary>
     /// <param name="behavior">One of the enumeration values that specifies the command behavior.</param>
     /// <returns>A task representing the operation.</returns>
-    public new NpgsqlDataReader ExecuteReader(CommandBehavior behavior = CommandBehavior.Default)
+    public new NpgsqlDataReaderPlDotNET ExecuteReader(CommandBehavior behavior = CommandBehavior.Default)
         => ExecuteReader(async: false, behavior, CancellationToken.None).GetAwaiter().GetResult();
 
     /// <summary>
@@ -1355,7 +1356,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
     /// </param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    public new virtual Task<NpgsqlDataReader> ExecuteReaderAsync(CancellationToken cancellationToken = default)
+    public new virtual Task<NpgsqlDataReaderPlDotNET> ExecuteReaderAsync(CancellationToken cancellationToken = default)
         => ExecuteReaderAsync(CommandBehavior.Default, cancellationToken);
 
     /// <summary>
@@ -1368,14 +1369,14 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
     /// </param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    public new Task<NpgsqlDataReader> ExecuteReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken = default)
+    public new Task<NpgsqlDataReaderPlDotNET> ExecuteReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken = default)
         => ExecuteReader(async: true, behavior, cancellationToken).AsTask();
 
     // TODO: Maybe pool these?
     internal ManualResetValueTaskSource<NpgsqlConnector> ExecutionCompletion { get; }
         = new();
 
-    internal virtual async ValueTask<NpgsqlDataReader> ExecuteReader(bool async, CommandBehavior behavior, CancellationToken cancellationToken)
+    internal virtual async ValueTask<NpgsqlDataReaderPlDotNET> ExecuteReader(bool async, CommandBehavior behavior, CancellationToken cancellationToken)
     {
         var conn = CheckAndGetConnection();
         _behavior = behavior;

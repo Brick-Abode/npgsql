@@ -14,6 +14,7 @@ using Npgsql.Internal;
 using Npgsql.PostgresTypes;
 using NpgsqlTypes;
 using PlDotNET.Common;
+using Npgsql.Original;
 
 using NpgsqlCommandOriginal = Npgsql.Original.NpgsqlCommand;
 
@@ -63,7 +64,7 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
         => Transaction = transaction;
 
 
-    internal NpgsqlCommand(int batchCommandCapacity, NpgsqlConnection? connection = null) : base(batchCommandCapacity, connection)
+    internal NpgsqlCommand(NpgsqlBatch batch, int batchCommandCapacity, NpgsqlConnection? connection = null) : base(batch, batchCommandCapacity, connection)
     {
         _parameters = new NpgsqlParameterCollection();
     }
@@ -71,7 +72,7 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
     internal NpgsqlCommand(string? cmdText, NpgsqlConnector connector) : this(cmdText)
         => _connector = connector;
 
-    internal NpgsqlCommand(NpgsqlConnector connector, int batchCommandCapacity) : this(batchCommandCapacity)
+    internal NpgsqlCommand(NpgsqlConnector connector, NpgsqlBatch batch, int batchCommandCapacity) : this(batch, batchCommandCapacity)
         => _connector = connector;
 
     /// <inheritdoc />
@@ -117,13 +118,15 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
         // The original code loop over the InternalBatchCommands modifying them
 
         // Fake the async behavior
+#pragma warning disable CA2007 // Consider calling ConfigureAwait on the awaited task
         await Task.Run(() => { }, cancellationToken);
+#pragma warning restore CA2007 // Consider calling ConfigureAwait on the awaited task
 
         return;
     }
 
     /// <inheritdoc />
-    internal override async ValueTask<NpgsqlDataReader> ExecuteReader(CommandBehavior behavior, bool async, CancellationToken cancellationToken)
+    internal override async ValueTask<NpgsqlDataReader> ExecuteReader(bool async, CommandBehavior behavior, CancellationToken cancellationToken)
     {
         async = false;
 
@@ -152,19 +155,19 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
             connector.Connection = conn;
         }
 
-        Func<Task<NpgsqlDataReader>> executeAsync = async () =>
+        var executeAsync = async () =>
         {
 
             // Currently, pldotnet operates using synchronous execution.
             async = false;
 
-            IntPtr errorDataPtr = IntPtr.Zero;
+            var errorDataPtr = IntPtr.Zero;
 
             State = CommandState.InProgress;
 
             var parser = new SqlQueryParser();
 
-            if (IsWrappedByBatch)
+            if (WrappingBatch is not null)
             {
                 foreach (var batchCommand in InternalBatchCommands)
                 {
@@ -176,13 +179,13 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
                 parser.ParseRawQuery(this, true, true);
             }
 
-            List<IntPtr> tupleTables = new List<IntPtr>();
-            List<ulong> processedRows = new List<ulong>();
+            var tupleTables = new List<IntPtr>();
+            var processedRows = new List<ulong>();
 
             // PositionalParameters are not sent to the BatchCommand so we need to take the parameters from the NpgsqlCommand
-            bool HasPositionalParameters = this.Parameters.Count > 0 && this.Parameters[0].IsPositional;
+            var HasPositionalParameters = Parameters.Count > 0 && Parameters[0].IsPositional;
 
-            foreach (NpgsqlParameter parameter in this.Parameters.InternalList)
+            foreach (var parameter in Parameters.InternalList)
             {
                 if (parameter.IsPositional != HasPositionalParameters)
                 {
@@ -190,29 +193,29 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
                 }
             }
 
-            foreach (NpgsqlBatchCommand batchCommand in this.InternalBatchCommands)
+            foreach (var batchCommand in InternalBatchCommands)
             {
                 var query = batchCommand.FinalCommandText;
 
                 var parameters = new List<NpgsqlParameter>();
 
                 // Get the right parameters list
-                if (IsWrappedByBatch)
+                if (WrappingBatch is not null)
                 {
                     parameters = batchCommand.PositionalParameters.Count == 0 ? batchCommand.Parameters.InternalList : batchCommand.PositionalParameters;
                 }
                 else
                 {
-                    parameters = batchCommand.PositionalParameters.Count == 0 ? this.Parameters.InternalList : batchCommand.PositionalParameters;
+                    parameters = batchCommand.PositionalParameters.Count == 0 ? Parameters.InternalList : batchCommand.PositionalParameters;
                 }
 
                 if (parameters.Count > 0)
                 {
                     // Prepare arrays to send to PostgreSQL
-                    uint[] paramTypesOid = new uint[parameters.Count];
-                    IntPtr[] paramValues = new IntPtr[parameters.Count];
-                    char[] nullmap = new char[parameters.Count];
-                    for (int i = 0; i < parameters.Count; i++)
+                    var paramTypesOid = new uint[parameters.Count];
+                    var paramValues = new IntPtr[parameters.Count];
+                    var nullmap = new char[parameters.Count];
+                    for (var i = 0; i < parameters.Count; i++)
                     {
                         paramTypesOid[i] = NpgsqlHelper.FindOid(parameters[i].NpgsqlDbType);
                         paramValues[i] = DatumConversionProvider.Get().OutputNullableValue((OID)paramTypesOid[i], parameters[i].Value);
@@ -221,7 +224,7 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
 
                     // TODO: refactor pldotnet_SPIPrepare to return the PlanPtr
                     // TODO: rename _cmdPointer -> let's use something related to SPIPlanPtr
-                    SPI.pldotnet_SPIPrepare(ref this._cmdPointer, query, parameters.Count, paramTypesOid, ref errorDataPtr);
+                    SPI.pldotnet_SPIPrepare(ref _cmdPointer, query, parameters.Count, paramTypesOid, ref errorDataPtr);
                     if (errorDataPtr != IntPtr.Zero)
                     {
                         Elog.Warning("The code fails in C!");
@@ -230,7 +233,7 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
 
                     // TODO: investigate how Npgsql controls readonly queries (it is false!)
                     // TODO: also investigate how Npgsql controls the limit of rows (it is 0 the same default value of plpython)
-                    tupleTables.Add(SPI.pldotnet_SPIExecutePlan(this._cmdPointer, paramValues, nullmap, false, 0, ref errorDataPtr));
+                    tupleTables.Add(SPI.pldotnet_SPIExecutePlan(_cmdPointer, paramValues, nullmap, false, 0, ref errorDataPtr));
                     if (errorDataPtr != IntPtr.Zero)
                     {
                         Elog.Warning("The code fails in C!");
@@ -262,7 +265,7 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
             connector.DataReader = reader;
 
             if (async)
-                await reader.NextResultAsync(cancellationToken);
+                _ = await reader.NextResultAsync(cancellationToken);
             else
                 reader.NextResult();
 
@@ -329,7 +332,7 @@ public class NpgsqlCommand : NpgsqlCommandOriginal
     /// <inheritdoc />
     public override Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken)
     {
-        int result = ExecuteNonQuery();
+        var result = ExecuteNonQuery();
         return Task.FromResult(result);
     }
 

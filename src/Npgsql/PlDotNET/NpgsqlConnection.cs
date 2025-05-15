@@ -71,7 +71,7 @@ public class NpgsqlConnection : NpgsqlConnectionOriginal
         Connector.Connection = this;
         Connector.State = ConnectorState.Ready;
 
-        this._dataSource = NpgsqlDataSource.Create();
+        _dataSource = NpgsqlDataSource.Create();
 
         return Task.CompletedTask;
     }
@@ -123,7 +123,7 @@ public class NpgsqlConnection : NpgsqlConnectionOriginal
     /// <inheritdoc/>
     public override NpgsqlCommand CreateCommand()
     {
-        return new NpgsqlCommand(null, this) { IsCached = true };
+        return new NpgsqlCommand(null, this);
     }
 
     /// <inheritdoc/>
@@ -143,13 +143,13 @@ public class NpgsqlConnection : NpgsqlConnectionOriginal
     {
         get
         {
-            IntPtr versionPtrStr = SPI.pldotnet_GetPostgreSqlVersion();
+            var versionPtrStr = SPI.pldotnet_GetPostgreSqlVersion();
             return new Version(Marshal.PtrToStringAuto(versionPtrStr) ?? string.Empty);
         }
     }
 
     /// <inheritdoc/>
-    internal override async ValueTask<NpgsqlTransaction> BeginTransaction(IsolationLevel level, bool async, CancellationToken cancellationToken)
+    internal override async ValueTask<NpgsqlTransaction> BeginTransaction(bool async, IsolationLevel level, CancellationToken cancellationToken)
     {
         // Currently, pldotnet operates using synchronous execution.
         async = false;
@@ -165,7 +165,9 @@ public class NpgsqlConnection : NpgsqlConnectionOriginal
         // This occurs because the PostgreSQL transaction initiates alongside the user procedure.
         if (async)
         {
+#pragma warning disable CA2007 // Consider calling ConfigureAwait on the awaited task
             await transaction.CommitAsync(cancellationToken);
+#pragma warning restore CA2007 // Consider calling ConfigureAwait on the awaited task
         }
         else
         {

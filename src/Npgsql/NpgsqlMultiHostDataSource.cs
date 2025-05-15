@@ -10,9 +10,9 @@ using System.Threading.Tasks;
 using System.Transactions;
 using Npgsql;
 
-using NpgsqlMultiHostDataSourcePlotNET = Npgsql.NpgsqlMultiHostDataSource;
 using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
 using NpgsqlDataSourcePlDotNET = Npgsql.NpgsqlDataSource;
+using NpgsqlMultiHostDataSourcePlDotNET = Npgsql.NpgsqlMultiHostDataSource;
 
 namespace Npgsql.Original;
 
@@ -23,7 +23,7 @@ namespace Npgsql.Original;
 /// <remarks>
 /// See <see href="https://www.npgsql.org/doc/failover-and-load-balancing.html" />.
 /// </remarks>
-public sealed class NpgsqlMultiHostDataSource : NpgsqlMultiHostDataSourcePlotNET
+public class NpgsqlMultiHostDataSource : NpgsqlDataSource
 {
     internal override bool OwnsConnectors => false;
 
@@ -76,7 +76,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlMultiHostDataSourcePlotNET
 
         _wrappers = new MultiHostDataSourceWrapper[highestValue + 1];
         foreach (var targetSessionAttribute in targetSessionAttributeValues)
-            _wrappers[(int)targetSessionAttribute] = new((NpgsqlMultiHostDataSourcePlotNET)this, targetSessionAttribute);
+            _wrappers[(int)targetSessionAttribute] = new((NpgsqlMultiHostDataSourcePlDotNET)this, targetSessionAttribute);
     }
 
     /// <summary>

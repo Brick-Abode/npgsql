@@ -167,10 +167,10 @@ public static class SPIHelper
     /// </summary>
     public static unsafe void HandlePostgresqlError(IntPtr errorDataPtr)
     {
-        ErrorData errorData = Marshal.PtrToStructure<ErrorData>(errorDataPtr);
+        var errorData = Marshal.PtrToStructure<ErrorData>(errorDataPtr);
 
-        IntPtr severityPtr = SPI.pldotnet_ErrorSeverity(errorData.elevel);
-        string severity = Marshal.PtrToStringAuto(severityPtr) ?? string.Empty;
+        var severityPtr = SPI.pldotnet_ErrorSeverity(errorData.elevel);
+        var severity = Marshal.PtrToStringAuto(severityPtr) ?? string.Empty;
 
         SPI.pldotnet_FreeErrorData(errorDataPtr);
 

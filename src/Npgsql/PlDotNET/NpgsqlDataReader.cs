@@ -98,21 +98,21 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
         var loadTypesQuery = PostgresDatabaseInfo.GenerateLoadTypesQuery(false, false, false);
         IntPtr typesPtr;
 
-        IntPtr errorDataPtr = IntPtr.Zero;
+        var errorDataPtr = IntPtr.Zero;
         typesPtr = SPI.pldotnet_SPIExecute(loadTypesQuery, true, 0, ref errorDataPtr);
 
-        int ntypes = SPI.pldotnet_GetTableColumnNumber(typesPtr);
+        var ntypes = SPI.pldotnet_GetTableColumnNumber(typesPtr);
 
-        IntPtr[] tmpResultTypes = new IntPtr[ntypes];
+        var tmpResultTypes = new IntPtr[ntypes];
         var nullmap = new byte[ntypes];
 
-        int rowcount = (int)SPI.pldotnet_GetProcessedRowsNumber();
+        var rowcount = (int)SPI.pldotnet_GetProcessedRowsNumber();
         Elog.Info($"Total types detected in DB: {rowcount}");
 
         byOID = new Dictionary<uint, PostgresType>();
 
         char typtype;
-        for (int j = 0; j < rowcount; j++)
+        for (var j = 0; j < rowcount; j++)
         {
             SPI.pldotnet_GetRow(j, tmpResultTypes, nullmap, typesPtr);
 
@@ -186,7 +186,7 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
     internal void FetchTableInformation()
     {
         Connector.State = ConnectorState.Fetching;
-        int NCols = SPI.pldotnet_GetTableColumnNumber(this.SPITupleTables[ResultIndex]);
+        var NCols = SPI.pldotnet_GetTableColumnNumber(SPITupleTables[ResultIndex]);
 
         OID[] ColumnTypes;
         string[] ColumnNames;
@@ -195,33 +195,33 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
 
         if (NCols > 0)
         {
-            this.CurrentRow = new IntPtr[NCols];
-            this.IsNull = new byte[NCols];
+            CurrentRow = new IntPtr[NCols];
+            IsNull = new byte[NCols];
 
-            IntPtr[] columnNamePts = new IntPtr[NCols];
-            int[] oidTypes = new int[NCols];
-            int[] Typmods = new int[NCols];
-            int[] Lens = new int[NCols];
+            var columnNamePts = new IntPtr[NCols];
+            var oidTypes = new int[NCols];
+            var Typmods = new int[NCols];
+            var Lens = new int[NCols];
 
-            SPI.pldotnet_GetColProps(oidTypes, columnNamePts, Typmods, Lens, this.SPITupleTables[ResultIndex]);
+            SPI.pldotnet_GetColProps(oidTypes, columnNamePts, Typmods, Lens, SPITupleTables[ResultIndex]);
 
             ColumnTypes = oidTypes.Select(i => (OID)i).ToArray();
             ColumnNames = columnNamePts.ToList().Select(namePts => Marshal.PtrToStringAuto(namePts)).ToArray();
             columnTypmods = Typmods.Select(i => (uint)i).ToArray();
             columnLens = Lens.Select(i => (short)i).ToArray();
 
-            this.CurrentRowIndex = 0;
+            CurrentRowIndex = 0;
 
-            this._recordsAffected = this.ProcessedRows[ResultIndex] == 0 ? null : (ulong)this.ProcessedRows[ResultIndex];
+            _recordsAffected = ProcessedRows[ResultIndex] == 0 ? null : (ulong)ProcessedRows[ResultIndex];
 
             RowDescriptionMessage rd = new(Math.Max(NCols, 1));
-            for (int i = 0; i < NCols; i++)
+            for (var i = 0; i < NCols; i++)
             {
                 if (rd is not null)
                 {
                     if (rd._fields is not null)
                     {
-                        uint tableoid = (uint)SPI.pldotnet_GetTableTypeID(this.SPITupleTables[ResultIndex]);
+                        var tableoid = (uint)SPI.pldotnet_GetTableTypeID(SPITupleTables[ResultIndex]);
 
                         rd._fields[i] = new FieldDescription(
                             name: ColumnNames[i],
@@ -268,10 +268,10 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
     /// </summary>
     public override Type GetFieldType(int ordinal)
     {
-        FieldDescription? f = RowDescription?._fields[ordinal];
+        var f = RowDescription?._fields[ordinal];
         if (f != null)
         {
-            OID t = (OID)f.TypeOID;
+            var t = (OID)f.TypeOID;
             return DatumConversionProvider.Get().GetFieldType(t);
         }
         return GetField(ordinal).FieldType;
@@ -308,17 +308,17 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
             }
 
             // Check if there are more results to read
-            if (this.ResultIndex >= SPITupleTables.Count)
+            if (ResultIndex >= SPITupleTables.Count)
             {
                 // No more query results to read
                 return false;
             }
 
             // Check if there are more rows in the current result
-            if (this.CurrentRowIndex < this.ProcessedRows[ResultIndex])
+            if (CurrentRowIndex < ProcessedRows[ResultIndex])
             {
-                SPI.pldotnet_GetRow((int)this.CurrentRowIndex, this.CurrentRow, this.IsNull, SPITupleTables[ResultIndex]);
-                this.CurrentRowIndex++;
+                SPI.pldotnet_GetRow((int)CurrentRowIndex, CurrentRow, IsNull, SPITupleTables[ResultIndex]);
+                CurrentRowIndex++;
 
                 return true;
             }
@@ -340,8 +340,8 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
     /// <param name="ordinal">The zero-based column index.</param>
     public override string GetDataTypeName(int ordinal)
     {
-        int typemod = RowDescription?._fields?[ordinal]?.TypeModifier ?? -1;
-        uint typeoid = RowDescription?._fields?[ordinal]?.TypeOID ?? 0;
+        var typemod = RowDescription?._fields?[ordinal]?.TypeModifier ?? -1;
+        var typeoid = RowDescription?._fields?[ordinal]?.TypeOID ?? 0;
 
         if (!(byOID.ContainsKey(typeoid)) && !isByOIDUpdated)
         {
@@ -359,30 +359,30 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
     /// <returns>The column to be retrieved.</returns>
     public override T GetFieldValue<T>(int ordinal)
     {
-        FieldDescription? f = RowDescription?._fields[ordinal];
+        var f = RowDescription?._fields[ordinal];
         // Check if the value of the column is non-null
-        if (this.IsNull[ordinal] == 0)
+        if (IsNull[ordinal] == 0)
         {
             if (f != null)
             {
-                bool arrayAllowsNullElements = false;
+                var arrayAllowsNullElements = false;
                 if (typeof(T).IsArray)
                 {
-                    Type elementType = typeof(T).GetElementType();
+                    var elementType = typeof(T).GetElementType();
                     if (elementType != null) // Check if elementType is not null
                     {
                         arrayAllowsNullElements = !elementType.IsValueType || Nullable.GetUnderlyingType(elementType) != null;
                     }
                 }
 
-                OID t = (OID)f.TypeOID;
-                object value = DatumConversionProvider.Get().InputValue(this.CurrentRow[ordinal], t, arrayAllowsNullElements);
+                var t = (OID)f.TypeOID;
+                var value = DatumConversionProvider.Get().InputValue(CurrentRow[ordinal], t, arrayAllowsNullElements);
 
-                Type targetType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+                var targetType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
                 if (targetType != typeof(T))
                 {
                     // If T is nullable and targetType is the underlying type
-                    object convertedValue = Convert.ChangeType(value, targetType);
+                    var convertedValue = Convert.ChangeType(value, targetType);
                     return (T)Activator.CreateInstance(typeof(T), convertedValue);
                 }
                 else
@@ -408,8 +408,8 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
         {
             if (f != null)
             {
-                OID t = (OID)f.TypeOID;
-                return (T)(object)DatumConversionProvider.Get().InputNullableValue(this.CurrentRow[ordinal], t, true);
+                var t = (OID)f.TypeOID;
+                return (T)(object)DatumConversionProvider.Get().InputNullableValue(CurrentRow[ordinal], t, true);
             }
             else
             {
@@ -442,15 +442,15 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
     {
         // Check if the value of the column is null
         // If so, it should return DBNull.Value in the same way as Npgsql
-        if (this.IsNull[ordinal] != 0)
+        if (IsNull[ordinal] != 0)
         {
             return DBNull.Value;
         }
-        FieldDescription? f = RowDescription?._fields[ordinal];
+        var f = RowDescription?._fields[ordinal];
         if (f != null)
         {
-            OID t = (OID)f.TypeOID;
-            return DatumConversionProvider.Get().InputValue(this.CurrentRow[ordinal], t);
+            var t = (OID)f.TypeOID;
+            return DatumConversionProvider.Get().InputValue(CurrentRow[ordinal], t);
         }
 
         return DBNull.Value;
@@ -536,11 +536,11 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
     /// <returns>true if there are more result sets; otherwise false.</returns>
     public override bool NextResult()
     {
-        this.ResultIndex++;
-        if (this.ResultIndex < SPITupleTables.Count)
+        ResultIndex++;
+        if (ResultIndex < SPITupleTables.Count)
         {
             State = ReaderState.BeforeResult;
-            this.CurrentRowIndex = 0;
+            CurrentRowIndex = 0;
 
             FetchTableInformation();
             Read();

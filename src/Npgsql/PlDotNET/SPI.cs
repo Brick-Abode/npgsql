@@ -109,7 +109,7 @@ public static class SPI
     /// </summary>
     public static void Execute(string cmd)
     {
-        IntPtr errorDataPtr = IntPtr.Zero;
+        var errorDataPtr = IntPtr.Zero;
         pldotnet_SPIExecute(cmd, false, 0, ref errorDataPtr);
         if (errorDataPtr != IntPtr.Zero)
         {

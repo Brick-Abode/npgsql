@@ -13,7 +13,7 @@ using NpgsqlTypes;
 
 using PlDotNET.Common;
 
-using NpgsqlDataSourceOriginal = Npgsql.Original.NpgsqlDataSource;
+using NpgsqlMultiHostDataSourceOriginal = Npgsql.Original.NpgsqlMultiHostDataSource;
 
 namespace Npgsql;
 
@@ -22,7 +22,7 @@ namespace Npgsql;
 /// Represents a modified version of the NpgsqlDataSource class that inherits from the original NpgsqlMultiHostDataSource class.
 /// This functions doesn't inherit from the original NpgsqlDataSource class because it is an abstract class (<see cref="NpgsqlDataSourceOrig" />).
 /// </summary>
-public class NpgsqlDataSource : NpgsqlDataSourceOriginal
+public class NpgsqlDataSource : NpgsqlMultiHostDataSourceOriginal
 {
     /// <summary>
     /// Internal constructor
@@ -74,7 +74,7 @@ public class NpgsqlDataSource : NpgsqlDataSourceOriginal
     /// </summary>
     public new NpgsqlConnection OpenConnection()
     {
-        var connection = this.CreateConnection();
+        var connection = CreateConnection();
 
         try
         {

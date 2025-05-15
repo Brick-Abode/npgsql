@@ -43,7 +43,7 @@ public class NpgsqlTransaction : NpgsqlTransactionOriginal
             isolationLevel = DefaultIsolationLevel;
         }
 
-        if (!IsolationLevels.TryGetValue(isolationLevel, out string level))
+        if (!IsolationLevels.TryGetValue(isolationLevel, out var level))
         {
             throw new NotSupportedException("Isolation level not supported: " + isolationLevel);
         }
@@ -67,7 +67,7 @@ public class NpgsqlTransaction : NpgsqlTransactionOriginal
     public override void Commit()
     {
         // https://www.postgresql.org/docs/current/spi-spi-commit.html
-        IntPtr errorDataPtr = IntPtr.Zero;
+        var errorDataPtr = IntPtr.Zero;
         SPI.pldotnet_SPICommit(ref errorDataPtr);
         if (errorDataPtr != IntPtr.Zero)
         {
@@ -87,7 +87,7 @@ public class NpgsqlTransaction : NpgsqlTransactionOriginal
     public override void Rollback()
     {
         // https://www.postgresql.org/docs/current/spi-spi-rollback.html
-        IntPtr errorDataPtr = IntPtr.Zero;
+        var errorDataPtr = IntPtr.Zero;
         SPI.pldotnet_SPIRollback(ref errorDataPtr);
         if (errorDataPtr != IntPtr.Zero)
         {
