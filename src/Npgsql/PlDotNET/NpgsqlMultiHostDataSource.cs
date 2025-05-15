@@ -9,14 +9,14 @@ public class NpgsqlMultiHostDataSource : NpgsqlDataSource
     /// <summary>
     /// Constructor
     /// </summary>
-    internal NpgsqlMultiHostDataSource() : base() {}
+    internal NpgsqlMultiHostDataSource() : base() { }
 
     internal NpgsqlMultiHostDataSource(NpgsqlConnectionStringBuilder settings, NpgsqlDataSourceConfiguration dataSourceConfig)
-        : this() {}
+        : this() { }
 
     /// <summary>
     /// Returns an <see cref="NpgsqlDataSource" />
     /// </summary>
     public new NpgsqlMultiHostDataSource WithTargetSession(TargetSessionAttributes targetSessionAttributes)
-        => (NpgsqlMultiHostDataSource) Create();
+        => (NpgsqlMultiHostDataSource)Create();
 }

@@ -1,13 +1,15 @@
 using System;
 using System.Threading.Tasks;
 
+using NpgsqlDataSourceBuilderOriginal = Npgsql.Original.NpgsqlDataSourceBuilder;
+
 namespace Npgsql;
 
 /// <summary>
 /// Represents a modified version of the NpgsqlDataSourceBuilder class that inherits from the original NpgsqlDataSourceBuilder class
-/// (<see cref="NpgsqlDataSourceBuilderOrig"/>) provided by Npgsql to work with pldotnet procedural language.
+/// (<see cref="NpgsqlDataSourceBuilder"/>) provided by Npgsql to work with pldotnet procedural language.
 /// </summary>
-public class NpgsqlDataSourceBuilder : NpgsqlDataSourceBuilderOrig
+public class NpgsqlDataSourceBuilder : NpgsqlDataSourceBuilderOriginal
 {
     /// <summary>
     /// Constructor
@@ -26,7 +28,7 @@ public class NpgsqlDataSourceBuilder : NpgsqlDataSourceBuilderOrig
     /// Builds and returns a <see cref="NpgsqlMultiHostDataSource" />
     /// </summary>
     public new NpgsqlMultiHostDataSource BuildMultiHost()
-        => (NpgsqlMultiHostDataSource) NpgsqlDataSource.Create();
+        => (NpgsqlMultiHostDataSource)NpgsqlDataSource.Create();
 
     // TODO: check if we need this method
     // /// <summary>

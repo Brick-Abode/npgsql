@@ -1,10 +1,12 @@
 ﻿#nullable enable
-abstract Npgsql.NpgsqlDataSource.Clear() -> void
-Npgsql.NpgsqlConnection.CloneWithAsync(string! connectionString, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Npgsql.NpgsqlConnection!>
-Npgsql.NpgsqlConnection.SslClientAuthenticationOptionsCallback.get -> System.Action<System.Net.Security.SslClientAuthenticationOptions!>?
-Npgsql.NpgsqlConnection.SslClientAuthenticationOptionsCallback.set -> void
+abstract Npgsql.Original.NpgsqlDataSource.Clear() -> void
+const Npgsql.Original.NpgsqlConnection.DefaultPort = 5432 -> int
+Npgsql.NpgsqlConnectionStringBuilder.IntegratedSecurity.get -> bool
+Npgsql.NpgsqlConnectionStringBuilder.IntegratedSecurity.set -> void
 Npgsql.NpgsqlConnectionStringBuilder.SslNegotiation.get -> Npgsql.SslNegotiation
 Npgsql.NpgsqlConnectionStringBuilder.SslNegotiation.set -> void
+Npgsql.NpgsqlDataReader.GetDateOnly(int ordinal) -> System.DateOnly
+Npgsql.NpgsqlDataSource.CreateCommand(string! query) -> Npgsql.NpgsqlCommand!
 Npgsql.NpgsqlDataSourceBuilder.ConfigureTypeLoading(System.Action<Npgsql.NpgsqlTypeLoadingOptionsBuilder!>! configureAction) -> Npgsql.NpgsqlDataSourceBuilder!
 Npgsql.NpgsqlDataSourceBuilder.MapComposite(System.Type! clrType, string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.NpgsqlDataSourceBuilder!
 Npgsql.NpgsqlDataSourceBuilder.MapComposite<T>(string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.NpgsqlDataSourceBuilder!
@@ -15,6 +17,7 @@ Npgsql.NpgsqlDataSourceBuilder.UseNegotiateOptionsCallback(System.Action<System.
 Npgsql.NpgsqlDataSourceBuilder.UseSslClientAuthenticationOptionsCallback(System.Action<System.Net.Security.SslClientAuthenticationOptions!>? sslClientAuthenticationOptionsCallback) -> Npgsql.NpgsqlDataSourceBuilder!
 Npgsql.NpgsqlMetricsOptions
 Npgsql.NpgsqlMetricsOptions.NpgsqlMetricsOptions() -> void
+Npgsql.NpgsqlMultiHostDataSource.WithTargetSession(Npgsql.TargetSessionAttributes targetSessionAttributes) -> Npgsql.NpgsqlMultiHostDataSource!
 Npgsql.NpgsqlSlimDataSourceBuilder.ConfigureTracing(System.Action<Npgsql.NpgsqlTracingOptionsBuilder!>! configureAction) -> Npgsql.NpgsqlSlimDataSourceBuilder!
 Npgsql.NpgsqlSlimDataSourceBuilder.ConfigureTypeLoading(System.Action<Npgsql.NpgsqlTypeLoadingOptionsBuilder!>! configureAction) -> Npgsql.NpgsqlSlimDataSourceBuilder!
 Npgsql.NpgsqlSlimDataSourceBuilder.EnableGeometricTypes() -> Npgsql.NpgsqlSlimDataSourceBuilder!
@@ -40,6 +43,151 @@ Npgsql.NpgsqlTypeLoadingOptionsBuilder
 Npgsql.NpgsqlTypeLoadingOptionsBuilder.EnableTableCompositesLoading(bool enable = true) -> Npgsql.NpgsqlTypeLoadingOptionsBuilder!
 Npgsql.NpgsqlTypeLoadingOptionsBuilder.EnableTypeLoading(bool enable = true) -> Npgsql.NpgsqlTypeLoadingOptionsBuilder!
 Npgsql.NpgsqlTypeLoadingOptionsBuilder.SetTypeLoadingSchemas(params System.Collections.Generic.IEnumerable<string!>? schemas) -> Npgsql.NpgsqlTypeLoadingOptionsBuilder!
+Npgsql.Original.NoticeEventHandler
+Npgsql.Original.NotificationEventHandler
+Npgsql.Original.NpgsqlCommand
+Npgsql.Original.NpgsqlCommand.AllResultTypesAreUnknown.get -> bool
+Npgsql.Original.NpgsqlCommand.AllResultTypesAreUnknown.set -> void
+Npgsql.Original.NpgsqlCommand.Connection.get -> Npgsql.Original.NpgsqlConnection?
+Npgsql.Original.NpgsqlCommand.Connection.set -> void
+Npgsql.Original.NpgsqlCommand.CreateParameter() -> Npgsql.NpgsqlParameter!
+Npgsql.Original.NpgsqlCommand.Disposed -> System.EventHandler?
+Npgsql.Original.NpgsqlCommand.ExecuteReader(System.Data.CommandBehavior behavior = System.Data.CommandBehavior.Default) -> Npgsql.Original.NpgsqlDataReader!
+Npgsql.Original.NpgsqlCommand.ExecuteReaderAsync(System.Data.CommandBehavior behavior, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Npgsql.Original.NpgsqlDataReader!>!
+Npgsql.Original.NpgsqlCommand.IsPrepared.get -> bool
+Npgsql.Original.NpgsqlCommand.NpgsqlCommand() -> void
+Npgsql.Original.NpgsqlCommand.NpgsqlCommand(string? cmdText) -> void
+Npgsql.Original.NpgsqlCommand.NpgsqlCommand(string? cmdText, Npgsql.Original.NpgsqlConnection? connection) -> void
+Npgsql.Original.NpgsqlCommand.NpgsqlCommand(string? cmdText, Npgsql.Original.NpgsqlConnection? connection, Npgsql.Original.NpgsqlTransaction? transaction) -> void
+Npgsql.Original.NpgsqlCommand.Parameters.get -> Npgsql.NpgsqlParameterCollection!
+Npgsql.Original.NpgsqlCommand.Statements.get -> System.Collections.Generic.IReadOnlyList<Npgsql.NpgsqlBatchCommand!>!
+Npgsql.Original.NpgsqlCommand.Transaction.get -> Npgsql.Original.NpgsqlTransaction?
+Npgsql.Original.NpgsqlCommand.Transaction.set -> void
+Npgsql.Original.NpgsqlCommand.UnknownResultTypeList.get -> bool[]?
+Npgsql.Original.NpgsqlCommand.UnknownResultTypeList.set -> void
+Npgsql.Original.NpgsqlCommand.Unprepare() -> void
+Npgsql.Original.NpgsqlCommand.UnprepareAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Npgsql.Original.NpgsqlConnection
+Npgsql.Original.NpgsqlConnection.BeginBinaryExport(string! copyToCommand) -> Npgsql.NpgsqlBinaryExporter!
+Npgsql.Original.NpgsqlConnection.BeginBinaryExportAsync(string! copyToCommand, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Npgsql.NpgsqlBinaryExporter!>!
+Npgsql.Original.NpgsqlConnection.BeginBinaryImport(string! copyFromCommand) -> Npgsql.NpgsqlBinaryImporter!
+Npgsql.Original.NpgsqlConnection.BeginBinaryImportAsync(string! copyFromCommand, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Npgsql.NpgsqlBinaryImporter!>!
+Npgsql.Original.NpgsqlConnection.BeginRawBinaryCopy(string! copyCommand) -> Npgsql.NpgsqlRawCopyStream!
+Npgsql.Original.NpgsqlConnection.BeginRawBinaryCopyAsync(string! copyCommand, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Npgsql.NpgsqlRawCopyStream!>!
+Npgsql.Original.NpgsqlConnection.BeginTextExport(string! copyToCommand) -> System.IO.TextReader!
+Npgsql.Original.NpgsqlConnection.BeginTextExportAsync(string! copyToCommand, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.TextReader!>!
+Npgsql.Original.NpgsqlConnection.BeginTextImport(string! copyFromCommand) -> System.IO.TextWriter!
+Npgsql.Original.NpgsqlConnection.BeginTextImportAsync(string! copyFromCommand, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.TextWriter!>!
+Npgsql.Original.NpgsqlConnection.BeginTransaction() -> Npgsql.Original.NpgsqlTransaction!
+Npgsql.Original.NpgsqlConnection.BeginTransaction(System.Data.IsolationLevel level) -> Npgsql.Original.NpgsqlTransaction!
+Npgsql.Original.NpgsqlConnection.BeginTransactionAsync(System.Data.IsolationLevel level, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Npgsql.Original.NpgsqlTransaction!>
+Npgsql.Original.NpgsqlConnection.BeginTransactionAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Npgsql.Original.NpgsqlTransaction!>
+Npgsql.Original.NpgsqlConnection.CloneWith(string! connectionString) -> Npgsql.Original.NpgsqlConnection!
+Npgsql.Original.NpgsqlConnection.CloneWithAsync(string! connectionString, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Npgsql.Original.NpgsqlConnection!>
+Npgsql.Original.NpgsqlConnection.CommandTimeout.get -> int
+Npgsql.Original.NpgsqlConnection.CreateBatch() -> Npgsql.NpgsqlBatch!
+Npgsql.Original.NpgsqlConnection.Disposed -> System.EventHandler?
+Npgsql.Original.NpgsqlConnection.FullState.get -> System.Data.ConnectionState
+Npgsql.Original.NpgsqlConnection.HasIntegerDateTimes.get -> bool
+Npgsql.Original.NpgsqlConnection.Host.get -> string?
+Npgsql.Original.NpgsqlConnection.Notice -> Npgsql.Original.NoticeEventHandler?
+Npgsql.Original.NpgsqlConnection.Notification -> Npgsql.Original.NotificationEventHandler?
+Npgsql.Original.NpgsqlConnection.NpgsqlConnection() -> void
+Npgsql.Original.NpgsqlConnection.NpgsqlConnection(string? connectionString) -> void
+Npgsql.Original.NpgsqlConnection.Port.get -> int
+Npgsql.Original.NpgsqlConnection.PostgresParameters.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+Npgsql.Original.NpgsqlConnection.PostgreSqlVersion.get -> System.Version!
+Npgsql.Original.NpgsqlConnection.ProcessID.get -> int
+Npgsql.Original.NpgsqlConnection.ProvideClientCertificatesCallback.get -> Npgsql.Original.ProvideClientCertificatesCallback?
+Npgsql.Original.NpgsqlConnection.ProvideClientCertificatesCallback.set -> void
+Npgsql.Original.NpgsqlConnection.ProvidePasswordCallback.get -> Npgsql.Original.ProvidePasswordCallback?
+Npgsql.Original.NpgsqlConnection.ProvidePasswordCallback.set -> void
+Npgsql.Original.NpgsqlConnection.ReloadTypes() -> void
+Npgsql.Original.NpgsqlConnection.ReloadTypesAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Npgsql.Original.NpgsqlConnection.SslClientAuthenticationOptionsCallback.get -> System.Action<System.Net.Security.SslClientAuthenticationOptions!>?
+Npgsql.Original.NpgsqlConnection.SslClientAuthenticationOptionsCallback.set -> void
+Npgsql.Original.NpgsqlConnection.Timezone.get -> string!
+Npgsql.Original.NpgsqlConnection.TypeMapper.get -> Npgsql.TypeMapping.INpgsqlTypeMapper!
+Npgsql.Original.NpgsqlConnection.UserCertificateValidationCallback.get -> System.Net.Security.RemoteCertificateValidationCallback?
+Npgsql.Original.NpgsqlConnection.UserCertificateValidationCallback.set -> void
+Npgsql.Original.NpgsqlConnection.UserName.get -> string?
+Npgsql.Original.NpgsqlConnection.Wait() -> void
+Npgsql.Original.NpgsqlConnection.Wait(int timeout) -> bool
+Npgsql.Original.NpgsqlConnection.Wait(System.TimeSpan timeout) -> bool
+Npgsql.Original.NpgsqlConnection.WaitAsync(int timeout, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Npgsql.Original.NpgsqlConnection.WaitAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Npgsql.Original.NpgsqlConnection.WaitAsync(System.TimeSpan timeout, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Npgsql.Original.NpgsqlDataReader
+Npgsql.Original.NpgsqlDataReader.GetColumnSchema() -> System.Collections.ObjectModel.ReadOnlyCollection<Npgsql.Schema.NpgsqlDbColumn!>!
+Npgsql.Original.NpgsqlDataReader.GetColumnSchemaAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.ObjectModel.ReadOnlyCollection<Npgsql.Schema.NpgsqlDbColumn!>!>!
+Npgsql.Original.NpgsqlDataReader.GetData(int ordinal) -> Npgsql.NpgsqlNestedDataReader!
+Npgsql.Original.NpgsqlDataReader.GetDataTypeOID(int ordinal) -> uint
+Npgsql.Original.NpgsqlDataReader.GetPostgresType(int ordinal) -> Npgsql.PostgresTypes.PostgresType!
+Npgsql.Original.NpgsqlDataReader.GetStreamAsync(int ordinal, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.Stream!>!
+Npgsql.Original.NpgsqlDataReader.GetTextReaderAsync(int ordinal, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.IO.TextReader!>!
+Npgsql.Original.NpgsqlDataReader.GetTimeSpan(int ordinal) -> System.TimeSpan
+Npgsql.Original.NpgsqlDataReader.IsOnRow.get -> bool
+Npgsql.Original.NpgsqlDataReader.ReaderClosed -> System.EventHandler?
+Npgsql.Original.NpgsqlDataReader.Rows.get -> ulong
+Npgsql.Original.NpgsqlDataReader.Statements.get -> System.Collections.Generic.IReadOnlyList<Npgsql.NpgsqlBatchCommand!>!
+Npgsql.Original.NpgsqlDataSource
+Npgsql.Original.NpgsqlDataSource.CreateBatch() -> Npgsql.NpgsqlBatch!
+Npgsql.Original.NpgsqlDataSource.CreateCommand(string? commandText = null) -> Npgsql.Original.NpgsqlCommand!
+Npgsql.Original.NpgsqlDataSource.CreateConnection() -> Npgsql.Original.NpgsqlConnection!
+Npgsql.Original.NpgsqlDataSource.OpenConnection() -> Npgsql.Original.NpgsqlConnection!
+Npgsql.Original.NpgsqlDataSource.OpenConnectionAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Npgsql.Original.NpgsqlConnection!>
+Npgsql.Original.NpgsqlDataSource.Password.set -> void
+Npgsql.Original.NpgsqlDataSource.ReloadTypes() -> void
+Npgsql.Original.NpgsqlDataSource.ReloadTypesAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Npgsql.Original.NpgsqlDataSourceBuilder
+Npgsql.Original.NpgsqlDataSourceBuilder.AddTypeInfoResolverFactory(Npgsql.Internal.PgTypeInfoResolverFactory! factory) -> void
+Npgsql.Original.NpgsqlDataSourceBuilder.Build() -> Npgsql.Original.NpgsqlDataSource!
+Npgsql.Original.NpgsqlDataSourceBuilder.BuildMultiHost() -> Npgsql.Original.NpgsqlMultiHostDataSource!
+Npgsql.Original.NpgsqlDataSourceBuilder.ConfigureJsonOptions(System.Text.Json.JsonSerializerOptions! serializerOptions) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.ConfigureTracing(System.Action<Npgsql.NpgsqlTracingOptionsBuilder!>! configureAction) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.ConfigureTypeLoading(System.Action<Npgsql.NpgsqlTypeLoadingOptionsBuilder!>! configureAction) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.ConnectionString.get -> string!
+Npgsql.Original.NpgsqlDataSourceBuilder.ConnectionStringBuilder.get -> Npgsql.NpgsqlConnectionStringBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.DefaultNameTranslator.get -> Npgsql.INpgsqlNameTranslator!
+Npgsql.Original.NpgsqlDataSourceBuilder.DefaultNameTranslator.set -> void
+Npgsql.Original.NpgsqlDataSourceBuilder.EnableDynamicJson(System.Type![]? jsonbClrTypes = null, System.Type![]? jsonClrTypes = null) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.EnableParameterLogging(bool parameterLoggingEnabled = true) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.EnableRecordsAsTuples() -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.EnableUnmappedTypes() -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.MapComposite(System.Type! clrType, string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.MapComposite<T>(string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.MapEnum(System.Type! clrType, string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.MapEnum<TEnum>(string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.Name.get -> string?
+Npgsql.Original.NpgsqlDataSourceBuilder.Name.set -> void
+Npgsql.Original.NpgsqlDataSourceBuilder.NpgsqlDataSourceBuilder(string? connectionString = null) -> void
+Npgsql.Original.NpgsqlDataSourceBuilder.UnmapComposite(System.Type! clrType, string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> bool
+Npgsql.Original.NpgsqlDataSourceBuilder.UnmapComposite<T>(string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> bool
+Npgsql.Original.NpgsqlDataSourceBuilder.UnmapEnum(System.Type! clrType, string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> bool
+Npgsql.Original.NpgsqlDataSourceBuilder.UnmapEnum<TEnum>(string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> bool
+Npgsql.Original.NpgsqlDataSourceBuilder.UseClientCertificate(System.Security.Cryptography.X509Certificates.X509Certificate? clientCertificate) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UseClientCertificates(System.Security.Cryptography.X509Certificates.X509CertificateCollection? clientCertificates) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UseClientCertificatesCallback(System.Action<System.Security.Cryptography.X509Certificates.X509CertificateCollection!>? clientCertificatesCallback) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UseLoggerFactory(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UseNegotiateOptionsCallback(System.Action<System.Net.Security.NegotiateAuthenticationClientOptions!>? negotiateOptionsCallback) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UsePasswordProvider(System.Func<Npgsql.NpgsqlConnectionStringBuilder!, string!>? passwordProvider, System.Func<Npgsql.NpgsqlConnectionStringBuilder!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>? passwordProviderAsync) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UsePeriodicPasswordProvider(System.Func<Npgsql.NpgsqlConnectionStringBuilder!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>? passwordProvider, System.TimeSpan successRefreshInterval, System.TimeSpan failureRefreshInterval) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UsePhysicalConnectionInitializer(System.Action<Npgsql.Original.NpgsqlConnection!>? connectionInitializer, System.Func<Npgsql.Original.NpgsqlConnection!, System.Threading.Tasks.Task!>? connectionInitializerAsync) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UseRootCertificate(System.Security.Cryptography.X509Certificates.X509Certificate2? rootCertificate) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UseRootCertificateCallback(System.Func<System.Security.Cryptography.X509Certificates.X509Certificate2!>? rootCertificateCallback) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UseSslClientAuthenticationOptionsCallback(System.Action<System.Net.Security.SslClientAuthenticationOptions!>? sslClientAuthenticationOptionsCallback) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlDataSourceBuilder.UseUserCertificateValidationCallback(System.Net.Security.RemoteCertificateValidationCallback! userCertificateValidationCallback) -> Npgsql.Original.NpgsqlDataSourceBuilder!
+Npgsql.Original.NpgsqlMultiHostDataSource
+Npgsql.Original.NpgsqlMultiHostDataSource.ClearDatabaseStates() -> void
+Npgsql.Original.NpgsqlMultiHostDataSource.CreateConnection(Npgsql.TargetSessionAttributes targetSessionAttributes) -> Npgsql.Original.NpgsqlConnection!
+Npgsql.Original.NpgsqlMultiHostDataSource.OpenConnection(Npgsql.TargetSessionAttributes targetSessionAttributes) -> Npgsql.Original.NpgsqlConnection!
+Npgsql.Original.NpgsqlMultiHostDataSource.OpenConnectionAsync(Npgsql.TargetSessionAttributes targetSessionAttributes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<Npgsql.Original.NpgsqlConnection!>
+Npgsql.Original.NpgsqlMultiHostDataSource.WithTargetSession(Npgsql.TargetSessionAttributes targetSessionAttributes) -> Npgsql.Original.NpgsqlDataSource!
+Npgsql.Original.NpgsqlTransaction
+Npgsql.Original.NpgsqlTransaction.Connection.get -> Npgsql.Original.NpgsqlConnection?
+Npgsql.Original.ProvideClientCertificatesCallback
+Npgsql.Original.ProvidePasswordCallback
+Npgsql.PoolManager
 Npgsql.Replication.PgOutput.ReplicationValue.GetFieldName() -> string!
 Npgsql.Replication.PgOutput.Messages.ParallelStreamAbortMessage
 Npgsql.Replication.PgOutput.Messages.ParallelStreamAbortMessage.AbortLsn.get -> NpgsqlTypes.NpgsqlLogSequenceNumber
@@ -59,13 +207,256 @@ Npgsql.Replication.PgOutput.PgOutputStreamingMode
 Npgsql.Replication.PgOutput.PgOutputStreamingMode.Off = 0 -> Npgsql.Replication.PgOutput.PgOutputStreamingMode
 Npgsql.Replication.PgOutput.PgOutputStreamingMode.On = 1 -> Npgsql.Replication.PgOutput.PgOutputStreamingMode
 Npgsql.Replication.PgOutput.PgOutputStreamingMode.Parallel = 2 -> Npgsql.Replication.PgOutput.PgOutputStreamingMode
+Npgsql.SPI
+Npgsql.SPIHelper
+Npgsql.SPIHelper.ErrorData
+Npgsql.SPIHelper.ErrorData.assoc_context -> nint
+Npgsql.SPIHelper.ErrorData.backtrace -> nint
+Npgsql.SPIHelper.ErrorData.column_name -> nint
+Npgsql.SPIHelper.ErrorData.constraint_name -> nint
+Npgsql.SPIHelper.ErrorData.context -> nint
+Npgsql.SPIHelper.ErrorData.context_domain -> nint
+Npgsql.SPIHelper.ErrorData.cursorpos -> int
+Npgsql.SPIHelper.ErrorData.datatype_name -> nint
+Npgsql.SPIHelper.ErrorData.detail -> nint
+Npgsql.SPIHelper.ErrorData.detail_log -> nint
+Npgsql.SPIHelper.ErrorData.domain -> nint
+Npgsql.SPIHelper.ErrorData.elevel -> int
+Npgsql.SPIHelper.ErrorData.ErrorData() -> void
+Npgsql.SPIHelper.ErrorData.filename -> nint
+Npgsql.SPIHelper.ErrorData.funcname -> nint
+Npgsql.SPIHelper.ErrorData.hide_ctx -> bool
+Npgsql.SPIHelper.ErrorData.hide_stmt -> bool
+Npgsql.SPIHelper.ErrorData.hint -> nint
+Npgsql.SPIHelper.ErrorData.internalpos -> int
+Npgsql.SPIHelper.ErrorData.internalquery -> nint
+Npgsql.SPIHelper.ErrorData.lineno -> int
+Npgsql.SPIHelper.ErrorData.message -> nint
+Npgsql.SPIHelper.ErrorData.message_id -> nint
+Npgsql.SPIHelper.ErrorData.output_to_client -> bool
+Npgsql.SPIHelper.ErrorData.output_to_server -> bool
+Npgsql.SPIHelper.ErrorData.saved_errno -> int
+Npgsql.SPIHelper.ErrorData.schema_name -> nint
+Npgsql.SPIHelper.ErrorData.sqlerrcode -> int
+Npgsql.SPIHelper.ErrorData.table_name -> nint
 Npgsql.SslNegotiation
 Npgsql.SslNegotiation.Direct = 1 -> Npgsql.SslNegotiation
 Npgsql.SslNegotiation.Postgres = 0 -> Npgsql.SslNegotiation
-override Npgsql.NpgsqlMultiHostDataSource.Clear() -> void
-Npgsql.NpgsqlDataSource.ReloadTypes() -> void
-Npgsql.NpgsqlDataSource.ReloadTypesAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Npgsql.NpgsqlConnection.ReloadTypesAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NpgsqlTypes.DatumConversionProvider
+NpgsqlTypes.IDatumConversion
+NpgsqlTypes.IDatumConversion.GetFieldType(NpgsqlTypes.OID oid) -> System.Type!
+NpgsqlTypes.IDatumConversion.GetTypeHandlerName(uint oid) -> string!
+NpgsqlTypes.IDatumConversion.InputNullableValue(nint datum, NpgsqlTypes.OID type, bool isNull, bool arrayAllowsNullElements = false) -> object?
+NpgsqlTypes.IDatumConversion.InputValue(nint datum, NpgsqlTypes.OID type, bool arrayAllowsNullElements = false) -> object!
+NpgsqlTypes.IDatumConversion.OutputNullableValue(NpgsqlTypes.OID type, object? value) -> nint
+NpgsqlTypes.NpgsqlHelper
+NpgsqlTypes.NpgsqlRange<T>.NpgsqlRange(T lowerBound, T upperBound, NpgsqlTypes.RangeFlags flags) -> void
+NpgsqlTypes.NpgsqlTsVector.Lexeme.Lexeme(string! text, System.Collections.Generic.List<NpgsqlTypes.NpgsqlTsVector.Lexeme.WordEntryPos>? wordEntryPositions, bool noCopy) -> void
+NpgsqlTypes.NpgsqlTsVector.Lexeme.WordEntryPos.Value.get -> short
+NpgsqlTypes.NpgsqlTsVector.NpgsqlTsVector(System.Collections.Generic.List<NpgsqlTypes.NpgsqlTsVector.Lexeme>! lexemes, bool noCheck = false) -> void
+NpgsqlTypes.OID
+NpgsqlTypes.OID.ACLITEMARRAYOID = 1034 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ACLITEMOID = 1033 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYARRAYOID = 2277 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYCOMPATIBLEARRAYOID = 5078 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYCOMPATIBLEMULTIRANGEOID = 4538 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYCOMPATIBLENONARRAYOID = 5079 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYCOMPATIBLEOID = 5077 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYCOMPATIBLERANGEOID = 5080 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYELEMENTOID = 2283 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYENUMOID = 3500 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYMULTIRANGEOID = 4537 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYNONARRAYOID = 2776 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYOID = 2276 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.ANYRANGEOID = 3831 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BITARRAYOID = 1561 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BITOID = 1560 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BOOLARRAYOID = 1000 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BOOLOID = 16 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BOXARRAYOID = 1020 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BOXOID = 603 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BPCHARARRAYOID = 1014 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BPCHAROID = 1042 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BYTEAARRAYOID = 1001 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.BYTEAOID = 17 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CHARARRAYOID = 1002 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CHAROID = 18 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CIDARRAYOID = 1012 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CIDOID = 29 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CIDRARRAYOID = 651 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CIDROID = 650 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CIRCLEARRAYOID = 719 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CIRCLEOID = 718 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CSTRINGARRAYOID = 1263 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.CSTRINGOID = 2275 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.DATEARRAYOID = 1182 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.DATEMULTIRANGEARRAYOID = 6155 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.DATEMULTIRANGEOID = 4535 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.DATEOID = 1082 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.DATERANGEARRAYOID = 3913 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.DATERANGEOID = 3912 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.EVENT_TRIGGEROID = 3838 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.FDW_HANDLEROID = 3115 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.FLOAT4ARRAYOID = 1021 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.FLOAT4OID = 700 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.FLOAT8ARRAYOID = 1022 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.FLOAT8OID = 701 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.GTSVECTORARRAYOID = 3644 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.GTSVECTOROID = 3642 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INDEX_AM_HANDLEROID = 325 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INETARRAYOID = 1041 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INETOID = 869 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT2ARRAYOID = 1005 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT2OID = 21 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT2VECTORARRAYOID = 1006 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT2VECTOROID = 22 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT4ARRAYOID = 1007 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT4MULTIRANGEARRAYOID = 6150 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT4MULTIRANGEOID = 4451 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT4OID = 23 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT4RANGEARRAYOID = 3905 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT4RANGEOID = 3904 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT8ARRAYOID = 1016 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT8MULTIRANGEARRAYOID = 6157 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT8MULTIRANGEOID = 4536 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT8OID = 20 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT8RANGEARRAYOID = 3927 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INT8RANGEOID = 3926 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INTERNALOID = 2281 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INTERVALARRAYOID = 1187 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.INTERVALOID = 1186 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.JSONARRAYOID = 199 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.JSONBARRAYOID = 3807 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.JSONBOID = 3802 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.JSONOID = 114 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.JSONPATHARRAYOID = 4073 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.JSONPATHOID = 4072 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.LANGUAGE_HANDLEROID = 2280 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.LINEARRAYOID = 629 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.LINEOID = 628 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.LSEGARRAYOID = 1018 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.LSEGOID = 601 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.MACADDR8ARRAYOID = 775 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.MACADDR8OID = 774 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.MACADDRARRAYOID = 1040 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.MACADDROID = 829 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.MONEYARRAYOID = 791 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.MONEYOID = 790 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.NAMEARRAYOID = 1003 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.NAMEOID = 19 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.NUMERICARRAYOID = 1231 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.NUMERICOID = 1700 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.NUMMULTIRANGEARRAYOID = 6151 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.NUMMULTIRANGEOID = 4532 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.NUMRANGEARRAYOID = 3907 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.NUMRANGEOID = 3906 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.OIDARRAYOID = 1028 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.OIDOID = 26 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.OIDVECTORARRAYOID = 1013 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.OIDVECTOROID = 30 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PATHARRAYOID = 1019 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PATHOID = 602 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_ATTRIBUTEARRAYOID = 270 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_BRIN_BLOOM_SUMMARYOID = 4600 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_BRIN_MINMAX_MULTI_SUMMARYOID = 4601 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_CLASSARRAYOID = 273 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_DDL_COMMANDOID = 32 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_DEPENDENCIESOID = 3402 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_LSNARRAYOID = 3221 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_LSNOID = 3220 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_MCV_LISTOID = 5017 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_NDISTINCTOID = 3361 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_NODE_TREEOID = 194 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_PROCARRAYOID = 272 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_SNAPSHOTARRAYOID = 5039 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_SNAPSHOTOID = 5038 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.PG_TYPEARRAYOID = 210 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.POINTARRAYOID = 1017 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.POINTOID = 600 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.POLYGONARRAYOID = 1027 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.POLYGONOID = 604 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.RECORDARRAYOID = 2287 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.RECORDOID = 2249 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REFCURSORARRAYOID = 2201 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REFCURSOROID = 1790 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGCLASSARRAYOID = 2210 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGCLASSOID = 2205 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGCOLLATIONARRAYOID = 4192 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGCOLLATIONOID = 4191 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGCONFIGARRAYOID = 3735 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGCONFIGOID = 3734 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGDICTIONARYARRAYOID = 3770 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGDICTIONARYOID = 3769 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGNAMESPACEARRAYOID = 4090 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGNAMESPACEOID = 4089 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGOPERARRAYOID = 2208 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGOPERATORARRAYOID = 2209 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGOPERATOROID = 2204 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGOPEROID = 2203 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGPROCARRAYOID = 1008 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGPROCEDUREARRAYOID = 2207 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGPROCEDUREOID = 2202 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGPROCOID = 24 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGROLEARRAYOID = 4097 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGROLEOID = 4096 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGTYPEARRAYOID = 2211 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.REGTYPEOID = 2206 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TABLE_AM_HANDLEROID = 269 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TEXTARRAYOID = 1009 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TEXTOID = 25 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIDARRAYOID = 1010 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIDOID = 27 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIMEARRAYOID = 1183 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIMEOID = 1083 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIMESTAMPARRAYOID = 1115 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIMESTAMPOID = 1114 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIMESTAMPTZARRAYOID = 1185 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIMESTAMPTZOID = 1184 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIMETZARRAYOID = 1270 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TIMETZOID = 1266 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TRIGGEROID = 2279 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSMULTIRANGEARRAYOID = 6152 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSMULTIRANGEOID = 4533 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSM_HANDLEROID = 3310 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSQUERYARRAYOID = 3645 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSQUERYOID = 3615 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSRANGEARRAYOID = 3909 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSRANGEOID = 3908 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSTZMULTIRANGEARRAYOID = 6153 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSTZMULTIRANGEOID = 4534 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSTZRANGEARRAYOID = 3911 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSTZRANGEOID = 3910 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSVECTORARRAYOID = 3643 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TSVECTOROID = 3614 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TXID_SNAPSHOTARRAYOID = 2949 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.TXID_SNAPSHOTOID = 2970 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.UNKNOWNOID = 705 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.UUIDARRAYOID = 2951 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.UUIDOID = 2950 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.VARBITARRAYOID = 1563 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.VARBITOID = 1562 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.VARCHARARRAYOID = 1015 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.VARCHAROID = 1043 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.VOIDOID = 2278 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.XID8ARRAYOID = 271 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.XID8OID = 5069 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.XIDARRAYOID = 1011 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.XIDOID = 28 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.XMLARRAYOID = 143 -> NpgsqlTypes.OID
+NpgsqlTypes.OID.XMLOID = 142 -> NpgsqlTypes.OID
+NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.Empty = 1 -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.Inclusive = NpgsqlTypes.RangeFlags.LowerBoundInclusive | NpgsqlTypes.RangeFlags.UpperBoundInclusive -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.Infinite = NpgsqlTypes.RangeFlags.LowerBoundInfinite | NpgsqlTypes.RangeFlags.UpperBoundInfinite -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.LowerBoundInclusive = 2 -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.LowerBoundInfinite = 8 -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.LowerInclusiveInfinite = NpgsqlTypes.RangeFlags.LowerBoundInclusive | NpgsqlTypes.RangeFlags.LowerBoundInfinite -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.None = 0 -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.UpperBoundInclusive = 4 -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.UpperBoundInfinite = 16 -> NpgsqlTypes.RangeFlags
+NpgsqlTypes.RangeFlags.UpperInclusiveInfinite = NpgsqlTypes.RangeFlags.UpperBoundInclusive | NpgsqlTypes.RangeFlags.UpperBoundInfinite -> NpgsqlTypes.RangeFlags
+override Npgsql.NpgsqlConnection.CreateCommand() -> Npgsql.NpgsqlCommand!
+override Npgsql.NpgsqlConnection.UnprepareAll() -> void
 *REMOVED*Npgsql.NpgsqlConnection.ReloadTypesAsync() -> System.Threading.Tasks.Task!
 *REMOVED*Npgsql.NpgsqlDataSourceBuilder.MapComposite(System.Type! clrType, string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.TypeMapping.INpgsqlTypeMapper!
 *REMOVED*Npgsql.NpgsqlDataSourceBuilder.MapComposite<T>(string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.TypeMapping.INpgsqlTypeMapper!
@@ -75,3 +466,151 @@ Npgsql.NpgsqlConnection.ReloadTypesAsync(System.Threading.CancellationToken canc
 *REMOVED*Npgsql.NpgsqlSlimDataSourceBuilder.MapComposite<T>(string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.TypeMapping.INpgsqlTypeMapper!
 *REMOVED*Npgsql.NpgsqlSlimDataSourceBuilder.MapEnum(System.Type! clrType, string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.TypeMapping.INpgsqlTypeMapper!
 *REMOVED*Npgsql.NpgsqlSlimDataSourceBuilder.MapEnum<TEnum>(string? pgName = null, Npgsql.INpgsqlNameTranslator? nameTranslator = null) -> Npgsql.TypeMapping.INpgsqlTypeMapper!
+override Npgsql.Original.NpgsqlCommand.Cancel() -> void
+override Npgsql.Original.NpgsqlCommand.CommandText.get -> string!
+override Npgsql.Original.NpgsqlCommand.CommandText.set -> void
+override Npgsql.Original.NpgsqlCommand.CommandTimeout.get -> int
+override Npgsql.Original.NpgsqlCommand.CommandTimeout.set -> void
+override Npgsql.Original.NpgsqlCommand.CommandType.get -> System.Data.CommandType
+override Npgsql.Original.NpgsqlCommand.CommandType.set -> void
+override Npgsql.Original.NpgsqlCommand.CreateDbParameter() -> System.Data.Common.DbParameter!
+override Npgsql.Original.NpgsqlCommand.DbConnection.get -> System.Data.Common.DbConnection?
+override Npgsql.Original.NpgsqlCommand.DbConnection.set -> void
+override Npgsql.Original.NpgsqlCommand.DbParameterCollection.get -> System.Data.Common.DbParameterCollection!
+override Npgsql.Original.NpgsqlCommand.DbTransaction.get -> System.Data.Common.DbTransaction?
+override Npgsql.Original.NpgsqlCommand.DbTransaction.set -> void
+override Npgsql.Original.NpgsqlCommand.DesignTimeVisible.get -> bool
+override Npgsql.Original.NpgsqlCommand.DesignTimeVisible.set -> void
+override Npgsql.Original.NpgsqlCommand.Dispose(bool disposing) -> void
+override Npgsql.Original.NpgsqlCommand.ExecuteDbDataReader(System.Data.CommandBehavior behavior) -> System.Data.Common.DbDataReader!
+override Npgsql.Original.NpgsqlCommand.ExecuteDbDataReaderAsync(System.Data.CommandBehavior behavior, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<System.Data.Common.DbDataReader!>!
+override Npgsql.Original.NpgsqlCommand.ExecuteNonQuery() -> int
+override Npgsql.Original.NpgsqlCommand.ExecuteNonQueryAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<int>!
+override Npgsql.Original.NpgsqlCommand.ExecuteScalar() -> object?
+override Npgsql.Original.NpgsqlCommand.ExecuteScalarAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<object?>!
+override Npgsql.Original.NpgsqlCommand.Prepare() -> void
+override Npgsql.Original.NpgsqlCommand.PrepareAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlCommand.UpdatedRowSource.get -> System.Data.UpdateRowSource
+override Npgsql.Original.NpgsqlCommand.UpdatedRowSource.set -> void
+override Npgsql.Original.NpgsqlConnection.BeginDbTransaction(System.Data.IsolationLevel isolationLevel) -> System.Data.Common.DbTransaction!
+override Npgsql.Original.NpgsqlConnection.BeginDbTransactionAsync(System.Data.IsolationLevel isolationLevel, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Data.Common.DbTransaction!>
+override Npgsql.Original.NpgsqlConnection.CanCreateBatch.get -> bool
+override Npgsql.Original.NpgsqlConnection.ChangeDatabase(string! dbName) -> void
+override Npgsql.Original.NpgsqlConnection.Close() -> void
+override Npgsql.Original.NpgsqlConnection.CloseAsync() -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlConnection.ConnectionString.get -> string!
+override Npgsql.Original.NpgsqlConnection.ConnectionString.set -> void
+override Npgsql.Original.NpgsqlConnection.ConnectionTimeout.get -> int
+override Npgsql.Original.NpgsqlConnection.CreateDbBatch() -> System.Data.Common.DbBatch!
+override Npgsql.Original.NpgsqlConnection.CreateDbCommand() -> System.Data.Common.DbCommand!
+override Npgsql.Original.NpgsqlConnection.Database.get -> string!
+override Npgsql.Original.NpgsqlConnection.DataSource.get -> string!
+override Npgsql.Original.NpgsqlConnection.DbProviderFactory.get -> System.Data.Common.DbProviderFactory!
+override Npgsql.Original.NpgsqlConnection.Dispose(bool disposing) -> void
+override Npgsql.Original.NpgsqlConnection.DisposeAsync() -> System.Threading.Tasks.ValueTask
+override Npgsql.Original.NpgsqlConnection.EnlistTransaction(System.Transactions.Transaction? transaction) -> void
+override Npgsql.Original.NpgsqlConnection.GetSchema() -> System.Data.DataTable!
+override Npgsql.Original.NpgsqlConnection.GetSchema(string? collectionName) -> System.Data.DataTable!
+override Npgsql.Original.NpgsqlConnection.GetSchema(string? collectionName, string?[]? restrictions) -> System.Data.DataTable!
+override Npgsql.Original.NpgsqlConnection.GetSchemaAsync(string! collectionName, string?[]? restrictions, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Data.DataTable!>!
+override Npgsql.Original.NpgsqlConnection.GetSchemaAsync(string! collectionName, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Data.DataTable!>!
+override Npgsql.Original.NpgsqlConnection.GetSchemaAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Data.DataTable!>!
+override Npgsql.Original.NpgsqlConnection.Open() -> void
+override Npgsql.Original.NpgsqlConnection.OpenAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlConnection.ServerVersion.get -> string!
+override Npgsql.Original.NpgsqlConnection.State.get -> System.Data.ConnectionState
+override Npgsql.Original.NpgsqlDataReader.Close() -> void
+override Npgsql.Original.NpgsqlDataReader.CloseAsync() -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlDataReader.Depth.get -> int
+override Npgsql.Original.NpgsqlDataReader.DisposeAsync() -> System.Threading.Tasks.ValueTask
+override Npgsql.Original.NpgsqlDataReader.FieldCount.get -> int
+override Npgsql.Original.NpgsqlDataReader.GetBoolean(int ordinal) -> bool
+override Npgsql.Original.NpgsqlDataReader.GetByte(int ordinal) -> byte
+override Npgsql.Original.NpgsqlDataReader.GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length) -> long
+override Npgsql.Original.NpgsqlDataReader.GetChar(int ordinal) -> char
+override Npgsql.Original.NpgsqlDataReader.GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length) -> long
+override Npgsql.Original.NpgsqlDataReader.GetDataTypeName(int ordinal) -> string!
+override Npgsql.Original.NpgsqlDataReader.GetDateTime(int ordinal) -> System.DateTime
+override Npgsql.Original.NpgsqlDataReader.GetDecimal(int ordinal) -> decimal
+override Npgsql.Original.NpgsqlDataReader.GetDouble(int ordinal) -> double
+override Npgsql.Original.NpgsqlDataReader.GetEnumerator() -> System.Collections.IEnumerator!
+override Npgsql.Original.NpgsqlDataReader.GetFieldType(int ordinal) -> System.Type!
+override Npgsql.Original.NpgsqlDataReader.GetFieldValue<T>(int ordinal) -> T
+override Npgsql.Original.NpgsqlDataReader.GetFieldValueAsync<T>(int ordinal, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<T>!
+override Npgsql.Original.NpgsqlDataReader.GetFloat(int ordinal) -> float
+override Npgsql.Original.NpgsqlDataReader.GetGuid(int ordinal) -> System.Guid
+override Npgsql.Original.NpgsqlDataReader.GetInt16(int ordinal) -> short
+override Npgsql.Original.NpgsqlDataReader.GetInt32(int ordinal) -> int
+override Npgsql.Original.NpgsqlDataReader.GetInt64(int ordinal) -> long
+override Npgsql.Original.NpgsqlDataReader.GetName(int ordinal) -> string!
+override Npgsql.Original.NpgsqlDataReader.GetOrdinal(string! name) -> int
+override Npgsql.Original.NpgsqlDataReader.GetSchemaTable() -> System.Data.DataTable?
+override Npgsql.Original.NpgsqlDataReader.GetSchemaTableAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Data.DataTable?>!
+override Npgsql.Original.NpgsqlDataReader.GetStream(int ordinal) -> System.IO.Stream!
+override Npgsql.Original.NpgsqlDataReader.GetString(int ordinal) -> string!
+override Npgsql.Original.NpgsqlDataReader.GetTextReader(int ordinal) -> System.IO.TextReader!
+override Npgsql.Original.NpgsqlDataReader.GetValue(int ordinal) -> object!
+override Npgsql.Original.NpgsqlDataReader.GetValues(object![]! values) -> int
+override Npgsql.Original.NpgsqlDataReader.HasRows.get -> bool
+override Npgsql.Original.NpgsqlDataReader.IsClosed.get -> bool
+override Npgsql.Original.NpgsqlDataReader.IsDBNull(int ordinal) -> bool
+override Npgsql.Original.NpgsqlDataReader.IsDBNullAsync(int ordinal, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<bool>!
+override Npgsql.Original.NpgsqlDataReader.NextResult() -> bool
+override Npgsql.Original.NpgsqlDataReader.NextResultAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<bool>!
+override Npgsql.Original.NpgsqlDataReader.Read() -> bool
+override Npgsql.Original.NpgsqlDataReader.ReadAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<bool>!
+override Npgsql.Original.NpgsqlDataReader.RecordsAffected.get -> int
+override Npgsql.Original.NpgsqlDataReader.this[int ordinal].get -> object!
+override Npgsql.Original.NpgsqlDataReader.this[string! name].get -> object!
+override Npgsql.Original.NpgsqlDataSource.ConnectionString.get -> string!
+override Npgsql.Original.NpgsqlMultiHostDataSource.Clear() -> void
+override Npgsql.Original.NpgsqlTransaction.Commit() -> void
+override Npgsql.Original.NpgsqlTransaction.CommitAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlTransaction.DisposeAsync() -> System.Threading.Tasks.ValueTask
+override Npgsql.Original.NpgsqlTransaction.IsolationLevel.get -> System.Data.IsolationLevel
+override Npgsql.Original.NpgsqlTransaction.Release(string! name) -> void
+override Npgsql.Original.NpgsqlTransaction.ReleaseAsync(string! name, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlTransaction.Rollback() -> void
+override Npgsql.Original.NpgsqlTransaction.Rollback(string! name) -> void
+override Npgsql.Original.NpgsqlTransaction.RollbackAsync(string! name, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlTransaction.RollbackAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlTransaction.Save(string! name) -> void
+override Npgsql.Original.NpgsqlTransaction.SaveAsync(string! name, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+override Npgsql.Original.NpgsqlTransaction.SupportsSavepoints.get -> bool
+readonly NpgsqlTypes.NpgsqlRange<T>.Flags -> NpgsqlTypes.RangeFlags
+readonly NpgsqlTypes.NpgsqlTsVector.Lexeme.WordEntryPositions -> System.Collections.Generic.List<NpgsqlTypes.NpgsqlTsVector.Lexeme.WordEntryPos>?
+static extern Npgsql.SPI.pldotnet_ErrorSeverity(int elevel) -> nint
+static extern Npgsql.SPI.pldotnet_FreeErrorData(nint errorData) -> void
+static extern Npgsql.SPI.pldotnet_GetColProps(int[]! columnTypes, nint[]! columnNames, int[]! columnTypmods, int[]! columnLens, nint tupleTable) -> void
+static extern Npgsql.SPI.pldotnet_GetPostgreSqlVersion() -> nint
+static extern Npgsql.SPI.pldotnet_GetProcessedRowsNumber() -> ulong
+static extern Npgsql.SPI.pldotnet_GetRow(int row, nint[]! datums, byte[]! isNull, nint tupleTable) -> void
+static extern Npgsql.SPI.pldotnet_GetTableColumnNumber(nint tupleTable) -> int
+static extern Npgsql.SPI.pldotnet_GetTableTypeID(nint tupleTable) -> int
+static extern Npgsql.SPI.pldotnet_SPICommit(ref nint errorData) -> void
+static extern Npgsql.SPI.pldotnet_SPIExecute(string! command, bool read_only, long count, ref nint errorData) -> nint
+static extern Npgsql.SPI.pldotnet_SPIExecutePlan(nint plan, nint[]! paramValues, char[]! nullmap, bool read_only, long count, ref nint errorData) -> nint
+static extern Npgsql.SPI.pldotnet_SPIPrepare(ref nint cmdPointer, string! command, int nargs, uint[]! paramTypesOid, ref nint errorData) -> void
+static extern Npgsql.SPI.pldotnet_SPIRollback(ref nint errorData) -> void
+static Npgsql.NpgsqlDataSource.Create(string! connectionString = "") -> Npgsql.NpgsqlDataSource!
+static Npgsql.Original.NpgsqlConnection.ClearAllPools() -> void
+static Npgsql.Original.NpgsqlConnection.ClearPool(Npgsql.Original.NpgsqlConnection! connection) -> void
+static Npgsql.Original.NpgsqlConnection.GlobalTypeMapper.get -> Npgsql.TypeMapping.INpgsqlTypeMapper!
+static Npgsql.Original.NpgsqlDataSource.Create(Npgsql.NpgsqlConnectionStringBuilder! connectionStringBuilder) -> Npgsql.Original.NpgsqlDataSource!
+static Npgsql.Original.NpgsqlDataSource.Create(string! connectionString) -> Npgsql.Original.NpgsqlDataSource!
+static Npgsql.PoolManager.Clear(string! connString) -> void
+static Npgsql.PoolManager.ClearAll() -> void
+static Npgsql.PoolManager.Pools.get -> System.Collections.Concurrent.ConcurrentDictionary<string!, Npgsql.NpgsqlDataSource!>!
+static Npgsql.PoolManager.Reset() -> void
+static Npgsql.SPI.Execute(string! cmd) -> void
+static Npgsql.SPIHelper.HandlePostgresqlError(nint errorDataPtr) -> void
+static NpgsqlTypes.DatumConversionProvider.Get() -> NpgsqlTypes.IDatumConversion!
+static NpgsqlTypes.DatumConversionProvider.Register(NpgsqlTypes.IDatumConversion! conversion) -> void
+static NpgsqlTypes.NpgsqlHelper.FindOid(NpgsqlTypes.NpgsqlDbType type) -> uint
+static NpgsqlTypes.NpgsqlHelper.GetPostgresTypeInfo(this NpgsqlTypes.NpgsqlDbType npgsqlDbType) -> BuiltInPostgresType!
+static NpgsqlTypes.NpgsqlHelper.MultirangeArrays -> System.Collections.Generic.Dictionary<string!, uint>!
+static NpgsqlTypes.NpgsqlHelper.RangeArrays -> System.Collections.Generic.Dictionary<string!, uint>!
+virtual Npgsql.Original.NpgsqlCommand.Clone() -> Npgsql.Original.NpgsqlCommand!
+virtual Npgsql.Original.NpgsqlCommand.ExecuteReaderAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Npgsql.Original.NpgsqlDataReader!>!
+virtual Npgsql.Original.NpgsqlConnection.CreateCommand() -> Npgsql.Original.NpgsqlCommand!
+virtual Npgsql.Original.NpgsqlConnection.UnprepareAll() -> void

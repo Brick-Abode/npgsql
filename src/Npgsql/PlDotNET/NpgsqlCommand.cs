@@ -15,15 +15,17 @@ using Npgsql.PostgresTypes;
 using NpgsqlTypes;
 using PlDotNET.Common;
 
+using NpgsqlCommandOriginal = Npgsql.Original.NpgsqlCommand;
+
 #pragma warning disable CS8604
 
 namespace Npgsql;
 
 /// <summary>
 /// Represents a modified version of the NpgsqlCommand class that inherits from the
-/// original Npgsql class (<see cref="NpgsqlCommandOrig"/>).
+/// original Npgsql class (<see cref="NpgsqlCommandOriginal"/>).
 /// </summary>
-public class NpgsqlCommand : NpgsqlCommandOrig
+public class NpgsqlCommand : NpgsqlCommandOriginal
 {
     internal IntPtr _cmdPointer = IntPtr.Zero;
 

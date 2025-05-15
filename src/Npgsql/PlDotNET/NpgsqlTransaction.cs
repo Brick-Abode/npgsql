@@ -11,6 +11,8 @@ using NpgsqlTypes;
 
 using PlDotNET.Common;
 
+using NpgsqlTransactionOriginal = Npgsql.Original.NpgsqlTransaction;
+
 namespace Npgsql;
 
 #pragma warning disable CS8600
@@ -18,7 +20,7 @@ namespace Npgsql;
 /// <summary>
 /// Represents a transaction to be made in a PostgreSQL database. This class cannot be inherited.
 /// </summary>
-public class NpgsqlTransaction : NpgsqlTransactionOrig
+public class NpgsqlTransaction : NpgsqlTransactionOriginal
 {
     internal NpgsqlTransaction(NpgsqlConnector connector = default!) : base() { }
 

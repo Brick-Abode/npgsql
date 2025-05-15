@@ -14,14 +14,13 @@ using Npgsql.Internal;
 using Npgsql.PostgresTypes;
 using Npgsql.TypeMapping;
 
-using Npgsql.Internal.TypeHandlers;
-using Npgsql.Internal.TypeHandling;
-
 using Npgsql.BackendMessages;
 using Npgsql.Original;
 using NpgsqlTypes;
 
 using PlDotNET.Common;
+
+using NpgsqlDataReaderOriginal = Npgsql.Original.NpgsqlDataReader;
 
 #pragma warning disable CS8618, CS8619, CS8604, CS8600, CS8603
 
@@ -29,9 +28,9 @@ namespace Npgsql;
 
 /// <summary>
 /// Represents a modified version of the NpgsqlDataReader class that inherits from the original NpgsqlDataReader class
-/// (<see cref="NpgsqlDataReaderOrig"/>) provided by Npgsql to work with pldotnet procedural language.
+/// (<see cref="NpgsqlDataReaderOriginal"/>) provided by Npgsql to work with pldotnet procedural language.
 /// </summary>
-public class NpgsqlDataReader : NpgsqlDataReaderOrig
+public class NpgsqlDataReader : NpgsqlDataReaderOriginal
 {
     /// <summary>
     /// The current row of the result set
@@ -128,53 +127,53 @@ public class NpgsqlDataReader : NpgsqlDataReaderOrig
             // Check the default implementation of Npgsql (see PostgresDatabaseInfo.cs)
             switch (typtype)
             {
-                case 'b': // Normal base type
-                    byOID[pgtoid] = new PostgresBaseType(
-                        pgtnamespace,
-                        pgtname,
-                        pgtoid
-                    );
-                    Elog.Info($"{pgtoid} ====> {pgtname}");
+            case 'b': // Normal base type
+                byOID[pgtoid] = new PostgresBaseType(
+                    pgtnamespace,
+                    pgtname,
+                    pgtoid
+                );
+                Elog.Info($"{pgtoid} ====> {pgtname}");
+                continue;
+
+            case 'a': // Array
+            {
+                if (!byOID.TryGetValue((uint)elemtypoid, out var elementPostgresType))
+                {
+                    Elog.Info($"Array type '{pgtname}' refers to unknown element with OID {elemtypoid}, skipping");
                     continue;
+                }
 
-                case 'a': // Array
-                    {
-                        if (!byOID.TryGetValue((uint)elemtypoid, out var elementPostgresType))
-                        {
-                            Elog.Info($"Array type '{pgtname}' refers to unknown element with OID {elemtypoid}, skipping");
-                            continue;
-                        }
+                var arrayType = new PostgresArrayType(
+                    pgtnamespace,
+                    pgtname,
+                    pgtoid,
+                    elementPostgresType);
 
-                        var arrayType = new PostgresArrayType(
-                            pgtnamespace,
-                            pgtname,
-                            pgtoid,
-                            elementPostgresType);
+                byOID[arrayType.OID] = arrayType;
+                continue;
+            }
 
-                        byOID[arrayType.OID] = arrayType;
-                        continue;
-                    }
+            case 'p': // pseudo-type (record, void)
+                goto case 'b'; // Hack this as a base type
 
-                case 'p': // pseudo-type (record, void)
-                    goto case 'b'; // Hack this as a base type
+            case 'r': // Range
+                continue;
 
-                case 'r': // Range
-                    continue;
+            case 'm': // Multirange
+                continue;
 
-                case 'm': // Multirange
-                    continue;
+            case 'e': // Enum
+                continue;
 
-                case 'e': // Enum
-                    continue;
+            case 'c': // Composite
+                continue;
 
-                case 'c': // Composite
-                    continue;
+            case 'd': // Domain
+                continue;
 
-                case 'd': // Domain
-                    continue;
-
-                default:
-                    throw new ArgumentOutOfRangeException($"Unknown typtype for type '{pgtname}' in pg_type: {typtype}");
+            default:
+                throw new ArgumentOutOfRangeException($"Unknown typtype for type '{pgtname}' in pg_type: {typtype}");
             }
         }
 
@@ -290,22 +289,22 @@ public class NpgsqlDataReader : NpgsqlDataReaderOrig
         {
             switch (State)
             {
-                case ReaderState.BeforeResult:
-                    // First Read() after NextResult. Data row has already been processed.
-                    State = ReaderState.InResult;
-                    return true;
+            case ReaderState.BeforeResult:
+                // First Read() after NextResult. Data row has already been processed.
+                State = ReaderState.InResult;
+                return true;
 
-                case ReaderState.InResult:
-                    break;
+            case ReaderState.InResult:
+                break;
 
-                case ReaderState.BetweenResults:
-                case ReaderState.Consumed:
-                case ReaderState.Closed:
-                case ReaderState.Disposed:
-                    return false;
+            case ReaderState.BetweenResults:
+            case ReaderState.Consumed:
+            case ReaderState.Closed:
+            case ReaderState.Disposed:
+                return false;
 
-                default:
-                    throw new ArgumentOutOfRangeException();
+            default:
+                throw new ArgumentOutOfRangeException();
             }
 
             // Check if there are more results to read
