@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Transactions;
 
-namespace Npgsql;
+namespace Npgsql.Original;
 
 /// <summary>
 /// An <see cref="NpgsqlDataSource" /> which manages connections for multiple hosts, is aware of their states (primary, secondary,
@@ -29,6 +29,16 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
     readonly MultiHostDataSourceWrapper[] _wrappers;
 
     volatile int _roundRobinIndex = -1;
+
+    /// <summary>
+    /// Constructor used by pldotnet
+    /// </summary>
+    internal NpgsqlMultiHostDataSource()
+        : base()
+    {
+        _pools = default!;
+        _wrappers = default!;
+    }
 
     internal NpgsqlMultiHostDataSource(NpgsqlConnectionStringBuilder settings, NpgsqlDataSourceConfiguration dataSourceConfig)
         : base(settings, dataSourceConfig)

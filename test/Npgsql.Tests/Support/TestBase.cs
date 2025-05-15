@@ -660,7 +660,7 @@ public abstract class TestBase
     // In PG under 9.1 you can't do SELECT pg_sleep(2) in binary because that function returns void and PG doesn't know
     // how to transfer that. So cast to text server-side.
     protected static NpgsqlCommand CreateSleepCommand(NpgsqlConnection conn, int seconds = 1000)
-        => new($"SELECT pg_sleep({seconds}){(conn.PostgreSqlVersion < new Version(9, 1, 0) ? "::TEXT" : "")}", conn);
+        => new($"SELECT pg_sleep({(seconds > 10 ? 10 : seconds)}){(conn.PostgreSqlVersion < new Version(9, 1, 0) ? "::TEXT" : "")}", conn);
 
     #endregion
 }

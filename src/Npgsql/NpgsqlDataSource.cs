@@ -13,7 +13,7 @@ using Npgsql.Internal.ResolverFactories;
 using Npgsql.Properties;
 using Npgsql.Util;
 
-namespace Npgsql;
+namespace Npgsql.Original;
 
 /// <inheritdoc />
 public abstract class NpgsqlDataSource : DbDataSource
@@ -25,9 +25,9 @@ public abstract class NpgsqlDataSource : DbDataSource
     /// Contains the connection string returned to the user from <see cref="NpgsqlConnection.ConnectionString"/>
     /// after the connection has been opened. Does not contain the password unless Persist Security Info=true.
     /// </summary>
-    internal NpgsqlConnectionStringBuilder Settings { get; }
+    internal NpgsqlConnectionStringBuilder Settings { get; set; }
 
-    internal NpgsqlDataSourceConfiguration Configuration { get; }
+    internal NpgsqlDataSourceConfiguration Configuration { get; set; }
     internal NpgsqlLoggingConfiguration LoggingConfiguration { get; }
 
     readonly PgTypeInfoResolverChain _resolverChain;
@@ -81,6 +81,23 @@ public abstract class NpgsqlDataSource : DbDataSource
     readonly SemaphoreSlim _setupMappingsSemaphore = new(1);
 
     readonly INpgsqlNameTranslator _defaultNameTranslator;
+
+    /// <summary>
+    /// Constructor used by pldotnet
+    /// </summary>
+    internal NpgsqlDataSource()
+    {
+        ConnectionString = default!;
+        Settings = default!;
+        Configuration = default!;
+        LoggingConfiguration = default!;
+        _defaultNameTranslator = default!;
+        _connectionLogger = default!;
+        TransportSecurityHandler = default!;
+        IntegratedSecurityHandler = default!;
+        MetricsReporter = default!;
+        Name = default!;
+    }
 
     internal NpgsqlDataSource(
         NpgsqlConnectionStringBuilder settings,

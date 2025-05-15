@@ -13,7 +13,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
 {
     readonly List<Lexeme> _lexemes;
 
-    internal NpgsqlTsVector(List<Lexeme> lexemes, bool noCheck = false)
+    public NpgsqlTsVector(List<Lexeme> lexemes, bool noCheck = false)
     {
         if (noCheck)
         {
@@ -297,7 +297,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
         /// </summary>
         public string Text { get; set; }
 
-        internal readonly List<WordEntryPos>? WordEntryPositions;
+        public readonly List<WordEntryPos>? WordEntryPositions;
 
         /// <summary>
         /// Creates a lexeme with no word entry positions.
@@ -317,7 +317,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
         public Lexeme(string text, List<WordEntryPos>? wordEntryPositions)
             : this(text, wordEntryPositions, false) {}
 
-        internal Lexeme(string text, List<WordEntryPos>? wordEntryPositions, bool noCopy)
+        public Lexeme(string text, List<WordEntryPos>? wordEntryPositions, bool noCopy)
         {
             Text = text;
             if (wordEntryPositions != null)
@@ -411,7 +411,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
         /// </summary>
         public struct WordEntryPos : IEquatable<WordEntryPos>
         {
-            internal short Value { get; }
+            public short Value { get; }
 
             internal WordEntryPos(short value)
                 => Value = value;

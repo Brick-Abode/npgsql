@@ -84,6 +84,7 @@ public class SecurityTests : TestBase
 
         var connString = new NpgsqlConnectionStringBuilder(ConnectionString)
         {
+            IntegratedSecurity = true,
             Username = username,
             Password = null
         }.ToString();
@@ -106,6 +107,7 @@ public class SecurityTests : TestBase
     {
         var connString = new NpgsqlConnectionStringBuilder(ConnectionString)
         {
+            IntegratedSecurity = true,
             Username = null,
             Password = null
         }.ToString();
@@ -128,6 +130,7 @@ public class SecurityTests : TestBase
     {
         var connString = new NpgsqlConnectionStringBuilder(ConnectionString)
         {
+            IntegratedSecurity = true,
             Username = null,
             Password = null,
             Database = null

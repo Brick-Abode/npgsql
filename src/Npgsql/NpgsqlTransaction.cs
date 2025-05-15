@@ -7,12 +7,12 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Npgsql.Internal;
 
-namespace Npgsql;
+namespace Npgsql.Original;
 
 /// <summary>
 /// Represents a transaction to be made in a PostgreSQL database. This class cannot be inherited.
 /// </summary>
-public sealed class NpgsqlTransaction : DbTransaction
+public class NpgsqlTransaction : DbTransaction
 {
     #region Fields and Properties
 
@@ -31,7 +31,7 @@ public sealed class NpgsqlTransaction : DbTransaction
 
     // Note that with ambient transactions, it's possible for a transaction to be pending after its connection
     // is already closed. So we capture the connector and perform everything directly on it.
-    NpgsqlConnector _connector;
+    protected NpgsqlConnector _connector;
 
     /// <summary>
     /// Specifies the <see cref="NpgsqlConnection"/> object associated with the transaction.
@@ -60,15 +60,22 @@ public sealed class NpgsqlTransaction : DbTransaction
             return _isolationLevel;
         }
     }
-    IsolationLevel _isolationLevel;
+    protected IsolationLevel _isolationLevel;
 
-    readonly ILogger _transactionLogger;
+    protected readonly ILogger _transactionLogger;
 
-    const IsolationLevel DefaultIsolationLevel = IsolationLevel.ReadCommitted;
+    protected const IsolationLevel DefaultIsolationLevel = IsolationLevel.ReadCommitted;
 
     #endregion
 
     #region Initialization
+
+    internal NpgsqlTransaction()
+    {
+        _connector = default!;
+        _transactionLogger = default!;
+    }
+
 
     internal NpgsqlTransaction(NpgsqlConnector connector)
     {
@@ -404,7 +411,7 @@ public sealed class NpgsqlTransaction : DbTransaction
             ThrowHelper.ThrowObjectDisposedException(nameof(NpgsqlTransaction), _disposeReason);
     }
 
-    static bool RequiresQuoting(string identifier)
+    protected static bool RequiresQuoting(string identifier)
     {
         Debug.Assert(identifier.Length > 0);
 

@@ -19,14 +19,14 @@ using Npgsql.TypeMapping;
 using Npgsql.Util;
 using IsolationLevel = System.Data.IsolationLevel;
 
-namespace Npgsql;
+namespace Npgsql.Original;
 
 /// <summary>
 /// This class represents a connection to a PostgreSQL server.
 /// </summary>
 // ReSharper disable once RedundantNameQualifier
 [System.ComponentModel.DesignerCategory("")]
-public sealed class NpgsqlConnection : DbConnection, ICloneable, IComponent
+public class NpgsqlConnection : DbConnection, ICloneable, IComponent
 {
     #region Fields
 
@@ -244,7 +244,7 @@ public sealed class NpgsqlConnection : DbConnection, ICloneable, IComponent
         _dataSource = PoolManager.Pools.GetOrAdd(_connectionString, _dataSource);
     }
 
-    internal Task Open(bool async, CancellationToken cancellationToken)
+    internal virtual Task Open(bool async, CancellationToken cancellationToken)
     {
         CheckClosed();
         Debug.Assert(Connector == null);
@@ -559,7 +559,7 @@ public sealed class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// Creates and returns a <see cref="NpgsqlCommand"/> object associated with the <see cref="NpgsqlConnection"/>.
     /// </summary>
     /// <returns>A <see cref="NpgsqlCommand"/> object.</returns>
-    public new NpgsqlCommand CreateCommand()
+    public new virtual NpgsqlCommand CreateCommand()
     {
         CheckDisposed();
 
@@ -632,7 +632,7 @@ public sealed class NpgsqlConnection : DbConnection, ICloneable, IComponent
     public new NpgsqlTransaction BeginTransaction(IsolationLevel level)
         => BeginTransaction(async: false, level, CancellationToken.None).GetAwaiter().GetResult();
 
-    async ValueTask<NpgsqlTransaction> BeginTransaction(bool async, IsolationLevel level, CancellationToken cancellationToken)
+    internal virtual async ValueTask<NpgsqlTransaction> BeginTransaction(bool async, IsolationLevel level, CancellationToken cancellationToken)
     {
         if (level == IsolationLevel.Chaos)
             ThrowHelper.ThrowNotSupportedException($"Unsupported IsolationLevel: {nameof(IsolationLevel.Chaos)}");
@@ -780,7 +780,7 @@ public sealed class NpgsqlConnection : DbConnection, ICloneable, IComponent
 
     internal void ReleaseCloseLock() => Volatile.Write(ref _closing, 0);
 
-    internal Task Close(bool async)
+    internal virtual Task Close(bool async)
     {
         // Even though NpgsqlConnection isn't thread safe we'll make sure this part is.
         // Because we really don't want double returns to the pool.
@@ -1524,7 +1524,7 @@ public sealed class NpgsqlConnection : DbConnection, ICloneable, IComponent
         }
     }
 
-    void CheckClosed()
+    internal void CheckClosed()
     {
         CheckDisposed();
 
@@ -1863,7 +1863,7 @@ public sealed class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// <summary>
     /// Unprepares all prepared statements on this connection.
     /// </summary>
-    public void UnprepareAll()
+    public virtual void UnprepareAll()
     {
         if (Settings.Multiplexing)
             throw new NotSupportedException("Explicit preparation not supported with multiplexing");

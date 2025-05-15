@@ -13,7 +13,7 @@ using Npgsql.NameTranslation;
 using Npgsql.TypeMapping;
 using NpgsqlTypes;
 
-namespace Npgsql;
+namespace Npgsql.Original;
 
 /// <summary>
 /// Provides a simple API for configuring and creating an <see cref="NpgsqlDataSource" />, from which database connections can be obtained.

@@ -21,13 +21,13 @@ using Npgsql.Schema;
 using NpgsqlTypes;
 using static Npgsql.Util.Statics;
 
-namespace Npgsql;
+namespace Npgsql.Original;
 
 /// <summary>
 /// Reads a forward-only stream of rows from a data source.
 /// </summary>
 #pragma warning disable CA1010
-public sealed class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
+public class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
 #pragma warning restore CA1010
 {
     static readonly Task<bool> TrueTask = Task.FromResult(true);
@@ -35,12 +35,12 @@ public sealed class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
 
     internal NpgsqlCommand Command { get; private set; } = default!;
     internal NpgsqlConnector Connector { get; }
-    NpgsqlConnection? _connection;
+    internal NpgsqlConnection? _connection;
 
     /// <summary>
     /// The behavior of the command with which this reader was executed.
     /// </summary>
-    CommandBehavior _behavior;
+    internal CommandBehavior _behavior;
 
     /// <summary>
     /// In multiplexing, this is <see langword="null" /> as the sending is managed in the write multiplexing loop,
@@ -102,7 +102,7 @@ public sealed class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
     /// </summary>
     ColumnInfo[]? ColumnInfoCache { get; set; }
 
-    ulong? _recordsAffected;
+    internal ulong? _recordsAffected;
 
     /// <summary>
     /// Whether the current result set has rows
@@ -121,6 +121,15 @@ public sealed class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
 
     long _startTimestamp;
     readonly ILogger _commandLogger;
+
+    /// <summary>
+    /// Constructor used by pldotnet
+    /// </summary>
+    internal NpgsqlDataReader()
+    {
+        Connector = default!;
+        _commandLogger = default!;
+    }
 
     internal NpgsqlDataReader(NpgsqlConnector connector)
     {
@@ -1095,7 +1104,7 @@ public sealed class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
     public override Task CloseAsync()
         => Close(async: true, connectionClosing: false, isDisposing: false);
 
-    internal async Task Close(bool async, bool connectionClosing, bool isDisposing)
+    internal virtual async Task Close(bool async, bool connectionClosing, bool isDisposing)
     {
         if (State is ReaderState.Closed or ReaderState.Disposed)
         {
@@ -1186,7 +1195,7 @@ public sealed class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
                 catch (Exception e)
                 {
                     // TODO: think of a better way to handle exceptions, see #1323 and #3163
-                    _commandLogger.LogDebug(e, "Exception caught while sending the request", Connector.Id);
+                    _commandLogger.LogDebug(e, "Exception caught while sending the request {Id}", Connector.Id);
                 }
             }
         }
@@ -2140,7 +2149,7 @@ public sealed class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
     /// Checks that we have a RowDescription, but not necessary an actual resultset
     /// (for operations which work in SchemaOnly mode.
     /// </summary>
-    FieldDescription GetField(int ordinal)
+    internal FieldDescription GetField(int ordinal)
     {
         ThrowIfClosedOrDisposed();
         if (RowDescription is { } columns)

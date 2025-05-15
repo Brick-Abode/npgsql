@@ -107,7 +107,7 @@ public readonly struct NpgsqlRange<T> : IEquatable<NpgsqlRange<T>>
     /// <summary>
     /// The characteristics of the boundaries.
     /// </summary>
-    internal readonly RangeFlags Flags;
+    public readonly RangeFlags Flags;
 
     /// <summary>
     /// True if the lower bound is part of the range (i.e. inclusive); otherwise, false.
@@ -181,7 +181,7 @@ public readonly struct NpgsqlRange<T> : IEquatable<NpgsqlRange<T>>
     /// <param name="lowerBound">The lower bound of the range.</param>
     /// <param name="upperBound">The upper bound of the range.</param>
     /// <param name="flags">The characteristics of the range boundaries.</param>
-    internal NpgsqlRange([AllowNull] T lowerBound, [AllowNull] T upperBound, RangeFlags flags) : this()
+    public NpgsqlRange([AllowNull] T lowerBound, [AllowNull] T upperBound, RangeFlags flags) : this()
     {
         // TODO: We need to check if the bounds are implicitly empty. E.g. '(1,1)' or '(0,0]'.
         // See: https://github.com/npgsql/npgsql/issues/1943.
@@ -476,7 +476,7 @@ public readonly struct NpgsqlRange<T> : IEquatable<NpgsqlRange<T>>
 /// See: https://www.postgresql.org/docs/current/static/rangetypes.html
 /// </remarks>
 [Flags]
-enum RangeFlags : byte
+public enum RangeFlags : byte
 {
     /// <summary>
     /// The default flag. The range is not empty and has boundaries that are definite and exclusive.

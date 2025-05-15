@@ -6,7 +6,7 @@ using NUnit.Framework;
 namespace Npgsql.Tests;
 
 [FixtureLifeCycle(LifeCycle.InstancePerTestCase)] // Parallel access to a single buffer
-class WriteBufferTests
+public class WriteBufferTests
 {
     [Test]
     public void Buffered_full_buffer_no_flush()

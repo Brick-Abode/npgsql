@@ -19,7 +19,7 @@ using Npgsql.Internal;
 using Npgsql.Properties;
 using System.Collections;
 
-namespace Npgsql;
+namespace Npgsql.Original;
 
 /// <summary>
 /// Represents a SQL statement or function (stored procedure) to execute
@@ -33,7 +33,7 @@ public class NpgsqlCommand : DbCommand, ICloneable, IComponent
 
     NpgsqlTransaction? _transaction;
 
-    readonly NpgsqlConnector? _connector;
+    internal readonly NpgsqlConnector? _connector;
 
     /// <summary>
     /// If this command is (explicitly) prepared, references the connector on which the preparation happened.
@@ -241,7 +241,7 @@ public class NpgsqlCommand : DbCommand, ICloneable, IComponent
     [Category("Data")]
     public override CommandType CommandType { get; set; }
 
-    internal NpgsqlConnection? InternalConnection { get; private set; }
+    internal NpgsqlConnection? InternalConnection { get; set; }
 
     /// <summary>
     /// DB connection.
@@ -658,7 +658,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
     public override Task PrepareAsync(CancellationToken cancellationToken = default)
         => Prepare(async: true, cancellationToken);
 
-    Task Prepare(bool async, CancellationToken cancellationToken = default)
+    internal virtual Task Prepare(bool async, CancellationToken cancellationToken = default)
     {
         var connection = CheckAndGetConnection();
         Debug.Assert(connection is not null);
@@ -824,7 +824,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
     public Task UnprepareAsync(CancellationToken cancellationToken = default)
         => Unprepare(async: true, cancellationToken);
 
-    async Task Unprepare(bool async, CancellationToken cancellationToken = default)
+    internal async virtual Task Unprepare(bool async, CancellationToken cancellationToken = default)
     {
         var connection = CheckAndGetConnection();
         Debug.Assert(connection is not null);
@@ -1350,7 +1350,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
     /// </param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    public new Task<NpgsqlDataReader> ExecuteReaderAsync(CancellationToken cancellationToken = default)
+    public new virtual Task<NpgsqlDataReader> ExecuteReaderAsync(CancellationToken cancellationToken = default)
         => ExecuteReaderAsync(CommandBehavior.Default, cancellationToken);
 
     /// <summary>
@@ -1953,7 +1953,7 @@ GROUP BY pg_proc.proargnames, pg_proc.proargtypes, pg_proc.proallargtypes, pg_pr
         return clone;
     }
 
-    NpgsqlConnection? CheckAndGetConnection()
+    internal NpgsqlConnection? CheckAndGetConnection()
     {
         if (State is CommandState.Disposed)
             ThrowHelper.ThrowObjectDisposedException(GetType().FullName);
