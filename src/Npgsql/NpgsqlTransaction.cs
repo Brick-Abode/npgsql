@@ -6,6 +6,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Npgsql.Internal;
+using Npgsql;
+
+using NpgsqlTransactionPlDotNET = Npgsql.NpgsqlTransaction;
+using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
 
 namespace Npgsql.Original;
 
@@ -17,10 +21,10 @@ public class NpgsqlTransaction : DbTransaction
     #region Fields and Properties
 
     /// <summary>
-    /// Specifies the <see cref="NpgsqlConnection"/> object associated with the transaction.
+    /// Specifies the <see cref="NpgsqlConnectionPlDotNET"/> object associated with the transaction.
     /// </summary>
-    /// <value>The <see cref="NpgsqlConnection"/> object associated with the transaction.</value>
-    public new NpgsqlConnection? Connection
+    /// <value>The <see cref="NpgsqlConnectionPlDotNET"/> object associated with the transaction.</value>
+    public new NpgsqlConnectionPlDotNET? Connection
     {
         get
         {
@@ -31,12 +35,14 @@ public class NpgsqlTransaction : DbTransaction
 
     // Note that with ambient transactions, it's possible for a transaction to be pending after its connection
     // is already closed. So we capture the connector and perform everything directly on it.
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
     protected NpgsqlConnector _connector;
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
     /// <summary>
-    /// Specifies the <see cref="NpgsqlConnection"/> object associated with the transaction.
+    /// Specifies the <see cref="NpgsqlConnectionPlDotNET"/> object associated with the transaction.
     /// </summary>
-    /// <value>The <see cref="NpgsqlConnection"/> object associated with the transaction.</value>
+    /// <value>The <see cref="NpgsqlConnectionPlDotNET"/> object associated with the transaction.</value>
     protected override DbConnection? DbConnection => Connection;
 
     /// <summary>
@@ -60,11 +66,17 @@ public class NpgsqlTransaction : DbTransaction
             return _isolationLevel;
         }
     }
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
     protected IsolationLevel _isolationLevel;
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
     protected readonly ILogger _transactionLogger;
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
     protected const IsolationLevel DefaultIsolationLevel = IsolationLevel.ReadCommitted;
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
     #endregion
 
@@ -411,7 +423,9 @@ public class NpgsqlTransaction : DbTransaction
             ThrowHelper.ThrowObjectDisposedException(nameof(NpgsqlTransaction), _disposeReason);
     }
 
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
     protected static bool RequiresQuoting(string identifier)
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
     {
         Debug.Assert(identifier.Length > 0);
 
@@ -449,7 +463,7 @@ public class NpgsqlTransaction : DbTransaction
             else
                 _connector.Transaction = null;
 
-            _connector.UnboundTransaction = this;
+            _connector.UnboundTransaction = (NpgsqlTransactionPlDotNET)this;
             _connector = null!;
         }
     }

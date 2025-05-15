@@ -12,6 +12,11 @@ using Npgsql.Internal.ResolverFactories;
 using Npgsql.NameTranslation;
 using Npgsql.TypeMapping;
 using NpgsqlTypes;
+using Npgsql;
+
+using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
+using NpgsqlDataSourcePlDotNET = Npgsql.NpgsqlDataSource;
+using NpgsqlMultiHostDataSourcePlDotNET = Npgsql.NpgsqlMultiHostDataSource;
 
 namespace Npgsql.Original;
 
@@ -344,10 +349,10 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// Configures a password provider, which is called by the data source when opening connections.
     /// </summary>
     /// <param name="passwordProvider">
-    /// A callback that may be invoked during <see cref="NpgsqlConnection.Open()" /> which returns the password to be sent to PostgreSQL.
+    /// A callback that may be invoked during <see cref="NpgsqlConnectionPlDotNET.Open()" /> which returns the password to be sent to PostgreSQL.
     /// </param>
     /// <param name="passwordProviderAsync">
-    /// A callback that may be invoked during <see cref="NpgsqlConnection.OpenAsync(CancellationToken)" /> which returns the password to be sent to PostgreSQL.
+    /// A callback that may be invoked during <see cref="NpgsqlConnectionPlDotNET.OpenAsync(CancellationToken)" /> which returns the password to be sent to PostgreSQL.
     /// </param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     /// <remarks>
@@ -531,12 +536,12 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// Register a connection initializer, which allows executing arbitrary commands when a physical database connection is first opened.
     /// </summary>
     /// <param name="connectionInitializer">
-    /// A synchronous connection initialization lambda, which will be called from <see cref="NpgsqlConnection.Open()" /> when a new physical
+    /// A synchronous connection initialization lambda, which will be called from <see cref="NpgsqlConnectionPlDotNET.Open()" /> when a new physical
     /// connection is opened.
     /// </param>
     /// <param name="connectionInitializerAsync">
     /// An asynchronous connection initialization lambda, which will be called from
-    /// <see cref="NpgsqlConnection.OpenAsync(CancellationToken)" /> when a new physical connection is opened.
+    /// <see cref="NpgsqlConnectionPlDotNET.OpenAsync(CancellationToken)" /> when a new physical connection is opened.
     /// </param>
     /// <remarks>
     /// If an initializer is registered, both sync and async versions must be provided. If you do not use sync APIs in your code, simply
@@ -549,8 +554,8 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     public NpgsqlDataSourceBuilder UsePhysicalConnectionInitializer(
-        Action<NpgsqlConnection>? connectionInitializer,
-        Func<NpgsqlConnection, Task>? connectionInitializerAsync)
+        Action<NpgsqlConnectionPlDotNET>? connectionInitializer,
+        Func<NpgsqlConnectionPlDotNET, Task>? connectionInitializerAsync)
     {
         _internalBuilder.UsePhysicalConnectionInitializer(connectionInitializer, connectionInitializerAsync);
         return this;
@@ -559,13 +564,13 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// <summary>
     /// Builds and returns an <see cref="NpgsqlDataSource" /> which is ready for use.
     /// </summary>
-    public NpgsqlDataSource Build()
+    public NpgsqlDataSourcePlDotNET Build()
         => _internalBuilder.Build();
 
     /// <summary>
-    /// Builds and returns a <see cref="NpgsqlMultiHostDataSource" /> which is ready for use for load-balancing and failover scenarios.
+    /// Builds and returns a <see cref="NpgsqlMultiHostDataSourcePlDotNET" /> which is ready for use for load-balancing and failover scenarios.
     /// </summary>
-    public NpgsqlMultiHostDataSource BuildMultiHost()
+    public NpgsqlMultiHostDataSourcePlDotNET BuildMultiHost()
         => _internalBuilder.BuildMultiHost();
 
     INpgsqlTypeMapper INpgsqlTypeMapper.ConfigureJsonOptions(JsonSerializerOptions serializerOptions)

@@ -1,10 +1,12 @@
+using NpgsqlDataSourceOriginal = Npgsql.Original.NpgsqlDataSource;
+
 namespace Npgsql;
 
 /// <summary>
 /// Represents a modified version of the NpgsqlMultiHostDataSource class that inherits from the NpgsqlDataSource class,
 /// which has been modified by pldotnet and inherited from the original Npgsql class (<see cref="NpgsqlDataSourceOrig"/>).
 /// </summary>
-public class NpgsqlMultiHostDataSource : NpgsqlDataSource
+public class NpgsqlMultiHostDataSource : NpgsqlDataSourceOriginal
 {
     /// <summary>
     /// Constructor

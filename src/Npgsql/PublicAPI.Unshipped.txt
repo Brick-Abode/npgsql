@@ -48,7 +48,7 @@ Npgsql.Original.NotificationEventHandler
 Npgsql.Original.NpgsqlCommand
 Npgsql.Original.NpgsqlCommand.AllResultTypesAreUnknown.get -> bool
 Npgsql.Original.NpgsqlCommand.AllResultTypesAreUnknown.set -> void
-Npgsql.Original.NpgsqlCommand.Connection.get -> Npgsql.Original.NpgsqlConnection?
+Npgsql.Original.NpgsqlCommand.Connection.get -> Npgsql.NpgsqlConnection?
 Npgsql.Original.NpgsqlCommand.Connection.set -> void
 Npgsql.Original.NpgsqlCommand.CreateParameter() -> Npgsql.NpgsqlParameter!
 Npgsql.Original.NpgsqlCommand.Disposed -> System.EventHandler?

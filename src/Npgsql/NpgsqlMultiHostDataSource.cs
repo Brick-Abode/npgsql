@@ -8,6 +8,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Transactions;
+using Npgsql;
+
+using NpgsqlMultiHostDataSourcePlotNET = Npgsql.NpgsqlMultiHostDataSource;
+using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
 
 namespace Npgsql.Original;
 
@@ -18,7 +22,7 @@ namespace Npgsql.Original;
 /// <remarks>
 /// See <see href="https://www.npgsql.org/doc/failover-and-load-balancing.html" />.
 /// </remarks>
-public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
+public sealed class NpgsqlMultiHostDataSource : NpgsqlMultiHostDataSourcePlotNET
 {
     internal override bool OwnsConnectors => false;
 
@@ -71,21 +75,21 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
 
         _wrappers = new MultiHostDataSourceWrapper[highestValue + 1];
         foreach (var targetSessionAttribute in targetSessionAttributeValues)
-            _wrappers[(int)targetSessionAttribute] = new(this, targetSessionAttribute);
+            _wrappers[(int)targetSessionAttribute] = new((NpgsqlMultiHostDataSourcePlotNET)this, targetSessionAttribute);
     }
 
     /// <summary>
     /// Returns a new, unopened connection from this data source.
     /// </summary>
     /// <param name="targetSessionAttributes">Specifies the server type (e.g. primary, standby).</param>
-    public NpgsqlConnection CreateConnection(TargetSessionAttributes targetSessionAttributes)
-        => NpgsqlConnection.FromDataSource(_wrappers[(int)targetSessionAttributes]);
+    public NpgsqlConnectionPlDotNET CreateConnection(TargetSessionAttributes targetSessionAttributes)
+        => NpgsqlConnectionPlDotNET.FromDataSource(_wrappers[(int)targetSessionAttributes]);
 
     /// <summary>
     /// Returns a new, opened connection from this data source.
     /// </summary>
     /// <param name="targetSessionAttributes">Specifies the server type (e.g. primary, standby).</param>
-    public NpgsqlConnection OpenConnection(TargetSessionAttributes targetSessionAttributes)
+    public NpgsqlConnectionPlDotNET OpenConnection(TargetSessionAttributes targetSessionAttributes)
     {
         var connection = CreateConnection(targetSessionAttributes);
 
@@ -108,7 +112,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
     /// <param name="cancellationToken">
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
     /// </param>
-    public async ValueTask<NpgsqlConnection> OpenConnectionAsync(
+    public async ValueTask<NpgsqlConnectionPlDotNET> OpenConnectionAsync(
         TargetSessionAttributes targetSessionAttributes,
         CancellationToken cancellationToken = default)
     {
@@ -167,7 +171,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
     }
 
     async ValueTask<NpgsqlConnector?> TryGetIdleOrNew(
-        NpgsqlConnection conn,
+        NpgsqlConnectionPlDotNET conn,
         TimeSpan timeoutPerHost,
         bool async,
         TargetSessionAttributes preferredType, Func<DatabaseState, TargetSessionAttributes, bool> stateValidator,
@@ -241,7 +245,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
     }
 
     async ValueTask<NpgsqlConnector?> TryGet(
-        NpgsqlConnection conn,
+        NpgsqlConnectionPlDotNET conn,
         TimeSpan timeoutPerHost,
         bool async,
         TargetSessionAttributes preferredType,
@@ -296,7 +300,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
     }
 
     internal override async ValueTask<NpgsqlConnector> Get(
-        NpgsqlConnection conn,
+        NpgsqlConnectionPlDotNET conn,
         NpgsqlTimeout timeout,
         bool async,
         CancellationToken cancellationToken)
@@ -370,7 +374,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
     internal override bool TryGetIdleConnector([NotNullWhen(true)] out NpgsqlConnector? connector)
         => throw new NpgsqlException("Npgsql bug: trying to get an idle connector from " + nameof(NpgsqlMultiHostDataSource));
 
-    internal override ValueTask<NpgsqlConnector?> OpenNewConnector(NpgsqlConnection conn, NpgsqlTimeout timeout, bool async, CancellationToken cancellationToken)
+    internal override ValueTask<NpgsqlConnector?> OpenNewConnector(NpgsqlConnectionPlDotNET conn, NpgsqlTimeout timeout, bool async, CancellationToken cancellationToken)
         => throw new NpgsqlException("Npgsql bug: trying to open a new connector from " + nameof(NpgsqlMultiHostDataSource));
 
     /// <inheritdoc />
@@ -412,7 +416,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
 
     internal override bool TryRentEnlistedPending(
         Transaction transaction,
-        NpgsqlConnection connection,
+        NpgsqlConnectionPlDotNET connection,
         [NotNullWhen(true)] out NpgsqlConnector? connector)
     {
         lock (_pendingEnlistedConnectors)
@@ -463,7 +467,7 @@ public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
         }
     }
 
-    static TargetSessionAttributes GetTargetSessionAttributes(NpgsqlConnection connection)
+    static TargetSessionAttributes GetTargetSessionAttributes(NpgsqlConnectionPlDotNET connection)
         => connection.Settings.TargetSessionAttributesParsed ??
            (PostgresEnvironment.TargetSessionAttributes is { } s
                ? NpgsqlConnectionStringBuilder.ParseTargetSessionAttributes(s)
