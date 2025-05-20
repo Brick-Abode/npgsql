@@ -11,6 +11,8 @@
     <NoWarn>$(NoWarn);CA2017</NoWarn>
     <NoWarn>$(NoWarn);NPG9001</NoWarn> <!-- Converter-related APIs are experimental -->
     <NoWarn>$(NoWarn);NPG9002</NoWarn> <!-- DatabaseInfo-related APIs are experimental -->
+    <!-- Disable strongname warning as that's not been enforced since .net 5.-->
+    <NoWarn>$(NoWarn);CS8002</NoWarn>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
   </PropertyGroup>

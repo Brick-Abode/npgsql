@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql.BackendMessages;
 using Npgsql.Internal;
 using static Npgsql.Util.Statics;
+using Npgsql.Original;
 
 #pragma warning disable 1591
 

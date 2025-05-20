@@ -2163,7 +2163,7 @@ public class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
         return default!;
     }
 
-    void ThrowIfClosedOrDisposed()
+    internal void ThrowIfClosedOrDisposed()
     {
         if (State is (ReaderState.Closed or ReaderState.Disposed) and var state)
             ThrowInvalidState(state);

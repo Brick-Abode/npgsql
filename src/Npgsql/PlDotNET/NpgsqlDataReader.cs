@@ -95,7 +95,7 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
         // | pg_catalog   | 21  | int2         | b       | f          |            |
         // | ...          | ... | ...          | ...     | ...        | ...        |
 
-        var loadTypesQuery = PostgresDatabaseInfo.GenerateLoadTypesQuery(false, false, false);
+        var loadTypesQuery = PostgresDatabaseInfo.GenerateLoadTypesQuery(false, false, false, null, false);
         IntPtr typesPtr;
 
         var errorDataPtr = IntPtr.Zero;
@@ -214,7 +214,8 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
 
             _recordsAffected = ProcessedRows[ResultIndex] == 0 ? null : (ulong)ProcessedRows[ResultIndex];
 
-            RowDescriptionMessage rd = new(Math.Max(NCols, 1));
+            // FIXME maybe this is true?
+            RowDescriptionMessage rd = new(false, Math.Max(NCols, 1));
             for (var i = 0; i < NCols; i++)
             {
                 if (rd is not null)
@@ -230,10 +231,7 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
                             oid: (uint)ColumnTypes[i],
                             typeSize: (short)columnLens[i],
                             typeModifier: (int)columnTypmods[i],
-
-                            // See pldotnet/dotnet_src/npgsql/src/Npgsql/Util/PGUtil.cs
-                            // formatCode is 0 for text mode
-                            formatCode: 0
+                            dataFormat: DataFormat.Text
                         );
 
                         if (rd is not null) rd._nameIndex.TryAdd(ColumnNames[i], i);
@@ -283,7 +281,7 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
     /// <returns><b>true</b> if there are more rows; otherwise <b>false</b>.</returns>
     public override bool Read()
     {
-        CheckClosedOrDisposed();
+        ThrowIfClosedOrDisposed();
 
         try
         {
@@ -383,7 +381,7 @@ public class NpgsqlDataReader : NpgsqlDataReaderOriginal
                 {
                     // If T is nullable and targetType is the underlying type
                     var convertedValue = Convert.ChangeType(value, targetType);
-                    return (T)Activator.CreateInstance(typeof(T), convertedValue);
+                    return (T)convertedValue;
                 }
                 else
                 {

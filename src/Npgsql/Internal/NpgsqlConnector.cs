@@ -351,8 +351,6 @@ public sealed partial class NpgsqlConnector
         CommandLogger = default!;
         TransactionLogger = default!;
         CopyLogger = default!;
-        ClientCertificatesCallback = default!;
-        UserCertificateValidationCallback = default!;
         State = ConnectorState.Closed;
         TransactionStatus = TransactionStatus.Idle;
         Settings = default!;
@@ -2015,7 +2013,7 @@ public sealed partial class NpgsqlConnector
         var copyOperation = CurrentCopyOperation;
 
         if (reader != null)
-            await reader.Close(async, connectionClosing: true, isDisposing: false).ConfigureAwait(false);
+            await reader.Close(async: async, connectionClosing: true, isDisposing: false).ConfigureAwait(false);
         else if (copyOperation != null)
         {
             // TODO: There's probably a race condition as the COPY operation may finish on its own during the next few lines
