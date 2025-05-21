@@ -9,18 +9,14 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Npgsql;
 using Npgsql.Internal;
 using Npgsql.PostgresTypes;
 using Npgsql.TypeMapping;
 
 using Npgsql.BackendMessages;
-using Npgsql.Original;
 using NpgsqlTypes;
 
 using PlDotNET.Common;
-
-using NpgsqlDataReaderOriginal = Npgsql.Original.NpgsqlDataReader;
 
 #pragma warning disable CS8618, CS8619, CS8604, CS8600, CS8603
 

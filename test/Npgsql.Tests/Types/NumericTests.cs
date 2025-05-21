@@ -5,7 +5,6 @@ using System.Numerics;
 using System.Threading.Tasks;
 using NpgsqlTypes;
 using NUnit.Framework;
-using Npgsql.Original;
 
 namespace Npgsql.Tests.Types;
 

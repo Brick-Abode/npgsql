@@ -14,16 +14,12 @@ using Npgsql.TypeMapping;
 using NpgsqlTypes;
 using Npgsql;
 
-using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
-using NpgsqlDataSourcePlDotNET = Npgsql.NpgsqlDataSource;
-using NpgsqlMultiHostDataSourcePlDotNET = Npgsql.NpgsqlMultiHostDataSource;
-
-namespace Npgsql.Original;
+namespace Npgsql;
 
 /// <summary>
-/// Provides a simple API for configuring and creating an <see cref="NpgsqlDataSourcePlDotNET" />, from which database connections can be obtained.
+/// Provides a simple API for configuring and creating an <see cref="NpgsqlDataSource" />, from which database connections can be obtained.
 /// </summary>
-public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
+public class NpgsqlDataSourceBuilderOriginal : INpgsqlTypeMapper
 {
     static UnsupportedTypeInfoResolver<NpgsqlDataSourceBuilder> UnsupportedTypeInfoResolver { get; } = new();
 
@@ -74,13 +70,13 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
             return builder;
         }, overwrite);
 
-    static NpgsqlDataSourceBuilder()
+    static NpgsqlDataSourceBuilderOriginal()
         => ResetGlobalMappings(overwrite: false);
 
     /// <summary>
     /// Constructs a new <see cref="NpgsqlDataSourceBuilder" />, optionally starting out from the given <paramref name="connectionString"/>.
     /// </summary>
-    public NpgsqlDataSourceBuilder(string? connectionString = null)
+    public NpgsqlDataSourceBuilderOriginal(string? connectionString = null)
     {
         _internalBuilder = new(new NpgsqlConnectionStringBuilder(connectionString));
         _internalBuilder.ConfigureDefaultFactories = static instance =>
@@ -110,7 +106,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseLoggerFactory(ILoggerFactory? loggerFactory)
     {
         _internalBuilder.UseLoggerFactory(loggerFactory);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -123,7 +119,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder EnableParameterLogging(bool parameterLoggingEnabled = true)
     {
         _internalBuilder.EnableParameterLogging(parameterLoggingEnabled);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -132,7 +128,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder ConfigureTypeLoading(Action<NpgsqlTypeLoadingOptionsBuilder> configureAction)
     {
         _internalBuilder.ConfigureTypeLoading(configureAction);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -142,7 +138,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder ConfigureTracing(Action<NpgsqlTracingOptionsBuilder> configureAction)
     {
         _internalBuilder.ConfigureTracing(configureAction);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -153,7 +149,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder ConfigureJsonOptions(JsonSerializerOptions serializerOptions)
     {
         _internalBuilder.ConfigureJsonOptions(serializerOptions);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -174,7 +170,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder EnableDynamicJson(Type[]? jsonbClrTypes = null, Type[]? jsonClrTypes = null)
     {
         _internalBuilder.EnableDynamicJson(jsonbClrTypes, jsonClrTypes);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -186,7 +182,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder EnableRecordsAsTuples()
     {
         AddTypeInfoResolverFactory(new TupledRecordTypeInfoResolverFactory());
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -198,7 +194,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder EnableUnmappedTypes()
     {
         AddTypeInfoResolverFactory(new UnmappedTypeInfoResolverFactory());
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     #region Authentication
@@ -222,7 +218,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseUserCertificateValidationCallback(RemoteCertificateValidationCallback userCertificateValidationCallback)
     {
         _internalBuilder.UseUserCertificateValidationCallback(userCertificateValidationCallback);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -234,7 +230,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseClientCertificate(X509Certificate? clientCertificate)
     {
         _internalBuilder.UseClientCertificate(clientCertificate);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -246,7 +242,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseClientCertificates(X509CertificateCollection? clientCertificates)
     {
         _internalBuilder.UseClientCertificates(clientCertificates);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -262,7 +258,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseSslClientAuthenticationOptionsCallback(Action<SslClientAuthenticationOptions>? sslClientAuthenticationOptionsCallback)
     {
         _internalBuilder.UseSslClientAuthenticationOptionsCallback(sslClientAuthenticationOptionsCallback);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -286,7 +282,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseClientCertificatesCallback(Action<X509CertificateCollection>? clientCertificatesCallback)
     {
         _internalBuilder.UseClientCertificatesCallback(clientCertificatesCallback);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -297,7 +293,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseRootCertificate(X509Certificate2? rootCertificate)
     {
         _internalBuilder.UseRootCertificate(rootCertificate);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -313,7 +309,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseRootCertificateCallback(Func<X509Certificate2>? rootCertificateCallback)
     {
         _internalBuilder.UseRootCertificateCallback(rootCertificateCallback);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
@@ -342,17 +338,17 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
         TimeSpan failureRefreshInterval)
     {
         _internalBuilder.UsePeriodicPasswordProvider(passwordProvider, successRefreshInterval, failureRefreshInterval);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
     /// Configures a password provider, which is called by the data source when opening connections.
     /// </summary>
     /// <param name="passwordProvider">
-    /// A callback that may be invoked during <see cref="NpgsqlConnectionPlDotNET.Open()" /> which returns the password to be sent to PostgreSQL.
+    /// A callback that may be invoked during <see cref="NpgsqlConnection.Open()" /> which returns the password to be sent to PostgreSQL.
     /// </param>
     /// <param name="passwordProviderAsync">
-    /// A callback that may be invoked during <see cref="NpgsqlConnectionPlDotNET.OpenAsync(CancellationToken)" /> which returns the password to be sent to PostgreSQL.
+    /// A callback that may be invoked during <see cref="NpgsqlConnection.OpenAsync(CancellationToken)" /> which returns the password to be sent to PostgreSQL.
     /// </param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     /// <remarks>
@@ -366,7 +362,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
         Func<NpgsqlConnectionStringBuilder, CancellationToken, ValueTask<string>>? passwordProviderAsync)
     {
         _internalBuilder.UsePasswordProvider(passwordProvider, passwordProviderAsync);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
 #if NET7_0_OR_GREATER
@@ -383,7 +379,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     public NpgsqlDataSourceBuilder UseNegotiateOptionsCallback(Action<NegotiateAuthenticationClientOptions>? negotiateOptionsCallback)
     {
         _internalBuilder.UseNegotiateOptionsCallback(negotiateOptionsCallback);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 #endif
 
@@ -422,7 +418,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
         where TEnum : struct, Enum
     {
         _internalBuilder.MapEnum<TEnum>(pgName, nameTranslator);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <inheritdoc />
@@ -455,7 +451,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
         Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
     {
         _internalBuilder.MapEnum(clrType, pgName, nameTranslator);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <inheritdoc />
@@ -488,7 +484,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
         string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
     {
         _internalBuilder.MapComposite(typeof(T), pgName, nameTranslator);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <inheritdoc />
@@ -521,7 +517,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
         Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
     {
         _internalBuilder.MapComposite(clrType, pgName, nameTranslator);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <inheritdoc />
@@ -536,12 +532,12 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// Register a connection initializer, which allows executing arbitrary commands when a physical database connection is first opened.
     /// </summary>
     /// <param name="connectionInitializer">
-    /// A synchronous connection initialization lambda, which will be called from <see cref="NpgsqlConnectionPlDotNET.Open()" /> when a new physical
+    /// A synchronous connection initialization lambda, which will be called from <see cref="NpgsqlConnection.Open()" /> when a new physical
     /// connection is opened.
     /// </param>
     /// <param name="connectionInitializerAsync">
     /// An asynchronous connection initialization lambda, which will be called from
-    /// <see cref="NpgsqlConnectionPlDotNET.OpenAsync(CancellationToken)" /> when a new physical connection is opened.
+    /// <see cref="NpgsqlConnection.OpenAsync(CancellationToken)" /> when a new physical connection is opened.
     /// </param>
     /// <remarks>
     /// If an initializer is registered, both sync and async versions must be provided. If you do not use sync APIs in your code, simply
@@ -554,23 +550,23 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     public NpgsqlDataSourceBuilder UsePhysicalConnectionInitializer(
-        Action<NpgsqlConnectionPlDotNET>? connectionInitializer,
-        Func<NpgsqlConnectionPlDotNET, Task>? connectionInitializerAsync)
+        Action<NpgsqlConnection>? connectionInitializer,
+        Func<NpgsqlConnection, Task>? connectionInitializerAsync)
     {
         _internalBuilder.UsePhysicalConnectionInitializer(connectionInitializer, connectionInitializerAsync);
-        return this;
+        return (NpgsqlDataSourceBuilder)this;
     }
 
     /// <summary>
-    /// Builds and returns an <see cref="NpgsqlDataSourcePlDotNET" /> which is ready for use.
+    /// Builds and returns an <see cref="NpgsqlDataSource" /> which is ready for use.
     /// </summary>
-    public NpgsqlDataSourcePlDotNET Build()
+    public NpgsqlDataSource Build()
         => _internalBuilder.Build();
 
     /// <summary>
-    /// Builds and returns a <see cref="NpgsqlMultiHostDataSourcePlDotNET" /> which is ready for use for load-balancing and failover scenarios.
+    /// Builds and returns a <see cref="NpgsqlMultiHostDataSource" /> which is ready for use for load-balancing and failover scenarios.
     /// </summary>
-    public NpgsqlMultiHostDataSourcePlDotNET BuildMultiHost()
+    public NpgsqlMultiHostDataSource BuildMultiHost()
         => _internalBuilder.BuildMultiHost();
 
     INpgsqlTypeMapper INpgsqlTypeMapper.ConfigureJsonOptions(JsonSerializerOptions serializerOptions)

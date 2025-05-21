@@ -6,14 +6,11 @@ using System.Data.Common;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Npgsql;
 using Npgsql.Internal;
 using Npgsql.PostgresTypes;
 using NpgsqlTypes;
 
 using PlDotNET.Common;
-
-using NpgsqlMultiHostDataSourceOriginal = Npgsql.Original.NpgsqlMultiHostDataSource;
 
 namespace Npgsql;
 

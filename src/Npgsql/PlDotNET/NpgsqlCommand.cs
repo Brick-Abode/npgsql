@@ -14,9 +14,6 @@ using Npgsql.Internal;
 using Npgsql.PostgresTypes;
 using NpgsqlTypes;
 using PlDotNET.Common;
-using Npgsql.Original;
-
-using NpgsqlCommandOriginal = Npgsql.Original.NpgsqlCommand;
 
 #pragma warning disable CS8604
 

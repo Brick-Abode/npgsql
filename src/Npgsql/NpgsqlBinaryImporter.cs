@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Npgsql.BackendMessages;
 using Npgsql.Internal;
-using Npgsql.Original;
 using Npgsql.Internal.Postgres;
 using NpgsqlTypes;
 using static Npgsql.Util.Statics;

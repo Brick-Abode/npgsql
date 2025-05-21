@@ -11,8 +11,6 @@ using NpgsqlTypes;
 
 using PlDotNET.Common;
 
-using NpgsqlTransactionOriginal = Npgsql.Original.NpgsqlTransaction;
-
 namespace Npgsql;
 
 #pragma warning disable CS8600

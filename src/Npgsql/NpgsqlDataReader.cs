@@ -21,25 +21,21 @@ using Npgsql.Schema;
 using NpgsqlTypes;
 using static Npgsql.Util.Statics;
 
-using NpgsqlDataReaderPlDotNET = Npgsql.NpgsqlDataReader;
-using NpgsqlCommandPlDotNET = Npgsql.NpgsqlCommand;
-using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
-
-namespace Npgsql.Original;
+namespace Npgsql;
 
 /// <summary>
 /// Reads a forward-only stream of rows from a data source.
 /// </summary>
 #pragma warning disable CA1010
-public class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
+public class NpgsqlDataReaderOriginal : DbDataReader, IDbColumnSchemaGenerator
 #pragma warning restore CA1010
 {
     static readonly Task<bool> TrueTask = Task.FromResult(true);
     static readonly Task<bool> FalseTask = Task.FromResult(false);
 
-    internal NpgsqlCommandPlDotNET Command { get; private set; } = default!;
+    internal NpgsqlCommand Command { get; private set; } = default!;
     internal NpgsqlConnector Connector { get; }
-    internal NpgsqlConnectionPlDotNET? _connection;
+    internal NpgsqlConnection? _connection;
 
     /// <summary>
     /// The behavior of the command with which this reader was executed.
@@ -127,22 +123,22 @@ public class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
     readonly ILogger _commandLogger;
 
     /// <summary>
-    /// Constructor used by pldotnet
+    /// Constructor used by
     /// </summary>
-    internal NpgsqlDataReader()
+    internal NpgsqlDataReaderOriginal()
     {
         Connector = default!;
         _commandLogger = default!;
     }
 
-    internal NpgsqlDataReader(NpgsqlConnector connector)
+    internal NpgsqlDataReaderOriginal(NpgsqlConnector connector)
     {
         Connector = connector;
         _commandLogger = connector.CommandLogger;
     }
 
     internal void Init(
-        NpgsqlCommandPlDotNET command,
+        NpgsqlCommand command,
         CommandBehavior behavior,
         List<NpgsqlBatchCommand> statements,
         long startTimestamp = 0,
@@ -1418,7 +1414,7 @@ public class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
         }
         else
         {
-            reader = new NpgsqlNestedDataReader((NpgsqlDataReaderPlDotNET)this, null, 1, compositeType);
+            reader = new NpgsqlNestedDataReader((NpgsqlDataReader)this, null, 1, compositeType);
         }
         if (isArray)
             reader.InitArray();
@@ -2212,8 +2208,8 @@ public class NpgsqlDataReader : DbDataReader, IDbColumnSchemaGenerator
         {
             Connector.DataReader = Connector.UnboundDataReader is { State: ReaderState.Disposed } previousReader
                 ? previousReader
-                : new NpgsqlDataReaderPlDotNET(Connector);
-            Connector.UnboundDataReader = (NpgsqlDataReaderPlDotNET)this;
+                : new NpgsqlDataReader(Connector);
+            Connector.UnboundDataReader = (NpgsqlDataReader)this;
         }
     }
 

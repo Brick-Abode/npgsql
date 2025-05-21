@@ -22,7 +22,6 @@ using Npgsql.Util;
 using static Npgsql.Util.Statics;
 using Microsoft.Extensions.Logging;
 using Npgsql.Properties;
-using Npgsql.Original;
 
 namespace Npgsql.Internal;
 

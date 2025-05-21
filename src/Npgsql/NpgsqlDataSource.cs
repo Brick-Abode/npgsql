@@ -14,21 +14,16 @@ using Npgsql.Properties;
 using Npgsql.Util;
 using Npgsql;
 
-using NpgsqlDataSourcePlDotNET = Npgsql.NpgsqlDataSource;
-using NpgsqlCommandPlDotNET = Npgsql.NpgsqlCommand;
-using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
-using NpgsqlDataSourceBuilderPlDotNET = Npgsql.NpgsqlDataSourceBuilder;
-
-namespace Npgsql.Original;
+namespace Npgsql;
 
 /// <inheritdoc />
-public abstract class NpgsqlDataSource : DbDataSource
+public abstract class NpgsqlDataSourceOriginal : DbDataSource
 {
     /// <inheritdoc />
     public override string ConnectionString { get; }
 
     /// <summary>
-    /// Contains the connection string returned to the user from <see cref="NpgsqlConnectionPlDotNET.ConnectionString"/>
+    /// Contains the connection string returned to the user from <see cref="NpgsqlConnection.ConnectionString"/>
     /// after the connection has been opened. Does not contain the password unless Persist Security Info=true.
     /// </summary>
     internal NpgsqlConnectionStringBuilder Settings { get; set; }
@@ -55,8 +50,8 @@ public abstract class NpgsqlDataSource : DbDataSource
 
     internal IntegratedSecurityHandler IntegratedSecurityHandler { get; }
 
-    internal Action<NpgsqlConnectionPlDotNET>? ConnectionInitializer { get; }
-    internal Func<NpgsqlConnectionPlDotNET, Task>? ConnectionInitializerAsync { get; }
+    internal Action<NpgsqlConnection>? ConnectionInitializer { get; }
+    internal Func<NpgsqlConnection, Task>? ConnectionInitializerAsync { get; }
 
     readonly Timer? _periodicPasswordProviderTimer;
     readonly CancellationTokenSource? _timerPasswordProviderCancellationTokenSource;
@@ -89,9 +84,9 @@ public abstract class NpgsqlDataSource : DbDataSource
     readonly INpgsqlNameTranslator _defaultNameTranslator;
 
     /// <summary>
-    /// Constructor used by pldotnet
+    /// Constructor used by
     /// </summary>
-    internal NpgsqlDataSource()
+    internal NpgsqlDataSourceOriginal()
     {
         ConnectionString = default!;
         Settings = default!;
@@ -105,7 +100,7 @@ public abstract class NpgsqlDataSource : DbDataSource
         Name = default!;
     }
 
-    internal NpgsqlDataSource(
+    internal NpgsqlDataSourceOriginal(
         NpgsqlConnectionStringBuilder settings,
         NpgsqlDataSourceConfiguration dataSourceConfig)
     {
@@ -158,15 +153,15 @@ public abstract class NpgsqlDataSource : DbDataSource
         }
 
         Name = name ?? ConnectionString;
-        MetricsReporter = new MetricsReporter((NpgsqlDataSourcePlDotNET)this);
+        MetricsReporter = new MetricsReporter((NpgsqlDataSource)this);
     }
 
     /// <inheritdoc cref="DbDataSource.CreateConnection" />
-    public new NpgsqlConnectionPlDotNET CreateConnection()
-        => NpgsqlConnectionPlDotNET.FromDataSource((NpgsqlDataSourcePlDotNET)this);
+    public new NpgsqlConnection CreateConnection()
+        => NpgsqlConnection.FromDataSource((NpgsqlDataSource)this);
 
     /// <inheritdoc cref="DbDataSource.OpenConnection" />
-    public new NpgsqlConnectionPlDotNET OpenConnection()
+    public new NpgsqlConnection OpenConnection()
     {
         var connection = CreateConnection();
 
@@ -187,7 +182,7 @@ public abstract class NpgsqlDataSource : DbDataSource
         => OpenConnection();
 
     /// <inheritdoc cref="DbDataSource.OpenConnectionAsync" />
-    public new async ValueTask<NpgsqlConnectionPlDotNET> OpenConnectionAsync(CancellationToken cancellationToken = default)
+    public new async ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default)
     {
         var connection = CreateConnection();
 
@@ -223,7 +218,7 @@ public abstract class NpgsqlDataSource : DbDataSource
     /// Creates a command ready for use against this <see cref="NpgsqlDataSource" />.
     /// </summary>
     /// <param name="commandText">An optional SQL for the command.</param>
-    public new NpgsqlCommandPlDotNET CreateCommand(string? commandText = null)
+    public new NpgsqlCommand CreateCommand(string? commandText = null)
         => new NpgsqlDataSourceCommand(CreateConnection()) { CommandText = commandText };
 
     /// <summary>
@@ -242,7 +237,7 @@ public abstract class NpgsqlDataSource : DbDataSource
     /// Creates a new <see cref="NpgsqlDataSource" /> for the given <paramref name="connectionString" />.
     /// </summary>
     public static NpgsqlDataSource Create(string connectionString)
-        => new NpgsqlDataSourceBuilderPlDotNET(connectionString).Build();
+        => new NpgsqlDataSourceBuilder(connectionString).Build();
 
     /// <summary>
     /// Creates a new <see cref="NpgsqlDataSource" /> for the given <paramref name="connectionStringBuilder" />.
@@ -343,7 +338,7 @@ public abstract class NpgsqlDataSource : DbDataSource
 
     /// <summary>
     /// Manually sets the password to be used the next time a physical connection is opened.
-    /// Consider using <see cref="NpgsqlDataSourceBuilderPlDotNET.UsePeriodicPasswordProvider" /> instead.
+    /// Consider using <see cref="NpgsqlDataSourceBuilder.UsePeriodicPasswordProvider" /> instead.
     /// </summary>
     public string Password
     {
@@ -414,12 +409,12 @@ public abstract class NpgsqlDataSource : DbDataSource
     #endregion Password management
 
     internal abstract ValueTask<NpgsqlConnector> Get(
-        NpgsqlConnectionPlDotNET conn, NpgsqlTimeout timeout, bool async, CancellationToken cancellationToken);
+        NpgsqlConnection conn, NpgsqlTimeout timeout, bool async, CancellationToken cancellationToken);
 
     internal abstract bool TryGetIdleConnector([NotNullWhen(true)] out NpgsqlConnector? connector);
 
     internal abstract ValueTask<NpgsqlConnector?> OpenNewConnector(
-        NpgsqlConnectionPlDotNET conn, NpgsqlTimeout timeout, bool async, CancellationToken cancellationToken);
+        NpgsqlConnection conn, NpgsqlTimeout timeout, bool async, CancellationToken cancellationToken);
 
     internal abstract void Return(NpgsqlConnector connector);
 
@@ -483,7 +478,7 @@ public abstract class NpgsqlDataSource : DbDataSource
         }
     }
 
-    internal virtual bool TryRentEnlistedPending(Transaction transaction, NpgsqlConnectionPlDotNET connection,
+    internal virtual bool TryRentEnlistedPending(Transaction transaction, NpgsqlConnection connection,
         [NotNullWhen(true)] out NpgsqlConnector? connector)
     {
         lock (_pendingEnlistedConnectors)

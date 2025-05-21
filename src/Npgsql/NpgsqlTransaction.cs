@@ -6,25 +6,21 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Npgsql.Internal;
-using Npgsql;
 
-using NpgsqlTransactionPlDotNET = Npgsql.NpgsqlTransaction;
-using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
-
-namespace Npgsql.Original;
+namespace Npgsql;
 
 /// <summary>
 /// Represents a transaction to be made in a PostgreSQL database. This class cannot be inherited.
 /// </summary>
-public class NpgsqlTransaction : DbTransaction
+public class NpgsqlTransactionOriginal : DbTransaction
 {
     #region Fields and Properties
 
     /// <summary>
-    /// Specifies the <see cref="NpgsqlConnectionPlDotNET"/> object associated with the transaction.
+    /// Specifies the <see cref="NpgsqlConnection"/> object associated with the transaction.
     /// </summary>
-    /// <value>The <see cref="NpgsqlConnectionPlDotNET"/> object associated with the transaction.</value>
-    public new NpgsqlConnectionPlDotNET? Connection
+    /// <value>The <see cref="NpgsqlConnection"/> object associated with the transaction.</value>
+    public new NpgsqlConnection? Connection
     {
         get
         {
@@ -40,9 +36,9 @@ public class NpgsqlTransaction : DbTransaction
 #pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
     /// <summary>
-    /// Specifies the <see cref="NpgsqlConnectionPlDotNET"/> object associated with the transaction.
+    /// Specifies the <see cref="NpgsqlConnection"/> object associated with the transaction.
     /// </summary>
-    /// <value>The <see cref="NpgsqlConnectionPlDotNET"/> object associated with the transaction.</value>
+    /// <value>The <see cref="NpgsqlConnection"/> object associated with the transaction.</value>
     protected override DbConnection? DbConnection => Connection;
 
     /// <summary>
@@ -82,14 +78,14 @@ public class NpgsqlTransaction : DbTransaction
 
     #region Initialization
 
-    internal NpgsqlTransaction()
+    internal NpgsqlTransactionOriginal()
     {
         _connector = default!;
         _transactionLogger = default!;
     }
 
 
-    internal NpgsqlTransaction(NpgsqlConnector connector)
+    internal NpgsqlTransactionOriginal(NpgsqlConnector connector)
     {
         _connector = connector;
         _transactionLogger = connector.TransactionLogger;
@@ -463,7 +459,7 @@ public class NpgsqlTransaction : DbTransaction
             else
                 _connector.Transaction = null;
 
-            _connector.UnboundTransaction = (NpgsqlTransactionPlDotNET)this;
+            _connector.UnboundTransaction = (NpgsqlTransaction)this;
             _connector = null!;
         }
     }

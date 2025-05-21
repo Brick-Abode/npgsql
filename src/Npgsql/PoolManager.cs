@@ -1,19 +1,17 @@
 ﻿using System;
 using System.Collections.Concurrent;
 
-using NpgsqlDataSourcePlDotNET = Npgsql.NpgsqlDataSource;
-
-namespace Npgsql.Original;
+namespace Npgsql;
 
 /// <summary>
 /// Provides lookup for a pool based on a connection string.
 /// </summary>
 /// <remarks>
-/// Note that pools created directly as <see cref="NpgsqlDataSourcePlDotNET" /> are referenced directly by users, and aren't managed here.
+/// Note that pools created directly as <see cref="NpgsqlDataSource" /> are referenced directly by users, and aren't managed here.
 /// </remarks>
-static class PoolManager
+static class PoolManagerOriginal
 {
-    internal static ConcurrentDictionary<string, NpgsqlDataSourcePlDotNET> Pools { get; } = new();
+    internal static ConcurrentDictionary<string, NpgsqlDataSource> Pools { get; } = new();
 
     internal static void Clear(string connString)
     {
@@ -29,7 +27,7 @@ static class PoolManager
             pool.Clear();
     }
 
-    static PoolManager()
+    static PoolManagerOriginal()
     {
         // When the appdomain gets unloaded (e.g. web app redeployment) attempt to nicely
         // close idle connectors to prevent errors in PostgreSQL logs (#491).

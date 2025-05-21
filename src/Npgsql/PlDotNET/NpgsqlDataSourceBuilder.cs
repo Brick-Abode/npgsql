@@ -1,8 +1,6 @@
 using System;
 using System.Threading.Tasks;
 
-using NpgsqlDataSourceBuilderOriginal = Npgsql.Original.NpgsqlDataSourceBuilder;
-
 namespace Npgsql;
 
 /// <summary>

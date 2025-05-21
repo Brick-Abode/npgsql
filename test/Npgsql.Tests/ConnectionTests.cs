@@ -17,7 +17,6 @@ using Npgsql.Util;
 using NpgsqlTypes;
 using NUnit.Framework;
 using static Npgsql.Tests.TestUtil;
-using Npgsql.Original;
 
 namespace Npgsql.Tests;
 

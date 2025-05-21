@@ -19,22 +19,14 @@ using Npgsql.TypeMapping;
 using Npgsql.Util;
 using IsolationLevel = System.Data.IsolationLevel;
 
-using NpgsqlConnectionPlDotNET = Npgsql.NpgsqlConnection;
-using NpgsqlCommandPlDotNET = Npgsql.NpgsqlCommand;
-using NpgsqlDataSourceBuilderPlDotNET = Npgsql.NpgsqlDataSourceBuilder;
-using NpgsqlTransactionPlDotNET = Npgsql.NpgsqlTransaction;
-using NpgsqlMultiHostDataSourcePlDotNET = Npgsql.NpgsqlMultiHostDataSource;
-using NpgsqlPoolManagerPlDotNET = Npgsql.PoolManager;
-using NpgsqlDataSourcePlDotNET = Npgsql.NpgsqlDataSource;
-
-namespace Npgsql.Original;
+namespace Npgsql;
 
 /// <summary>
 /// This class represents a connection to a PostgreSQL server.
 /// </summary>
 // ReSharper disable once RedundantNameQualifier
 [System.ComponentModel.DesignerCategory("")]
-public class NpgsqlConnection : DbConnection, ICloneable, IComponent
+public class NpgsqlConnectionOriginal : DbConnection, ICloneable, IComponent
 {
     #region Fields
 
@@ -66,9 +58,9 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
 
     static readonly NpgsqlConnectionStringBuilder DefaultSettings = new();
 
-    NpgsqlDataSourcePlDotNET? _dataSource;
+    NpgsqlDataSource? _dataSource;
 
-    internal NpgsqlDataSourcePlDotNET NpgsqlDataSource
+    internal NpgsqlDataSource NpgsqlDataSource
     {
         get
         {
@@ -126,32 +118,32 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     #region Constructors / Init / Open
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="NpgsqlConnectionPlDotNET"/> class.
+    /// Initializes a new instance of the <see cref="NpgsqlConnection"/> class.
     /// </summary>
-    public NpgsqlConnection()
+    public NpgsqlConnectionOriginal()
         => GC.SuppressFinalize(this);
 
     /// <summary>
-    /// Initializes a new instance of <see cref="NpgsqlConnectionPlDotNET"/> with the given connection string.
+    /// Initializes a new instance of <see cref="NpgsqlConnection"/> with the given connection string.
     /// </summary>
     /// <param name="connectionString">The connection used to open the PostgreSQL database.</param>
 
-    public NpgsqlConnection(string? connectionString) : this()
+    public NpgsqlConnectionOriginal(string? connectionString) : this()
         => ConnectionString = connectionString;
 
-    internal NpgsqlConnection(NpgsqlDataSourcePlDotNET dataSource, NpgsqlConnector connector) : this()
+    internal NpgsqlConnectionOriginal(NpgsqlDataSource dataSource, NpgsqlConnector connector) : this()
     {
         _dataSource = dataSource;
         Settings = dataSource.Settings;
         _userFacingConnectionString = dataSource.ConnectionString;
 
         Connector = connector;
-        connector.Connection = (NpgsqlConnectionPlDotNET)this;
+        connector.Connection = (NpgsqlConnection)this;
         ConnectorBindingScope = ConnectorBindingScope.Connection;
         FullState = ConnectionState.Open;
     }
 
-    internal static NpgsqlConnection FromDataSource(NpgsqlDataSourcePlDotNET dataSource)
+    internal static NpgsqlConnection FromDataSource(NpgsqlDataSource dataSource)
         => new()
         {
             _dataSource = dataSource,
@@ -168,7 +160,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// This is the asynchronous version of <see cref="Open()"/>.
     /// </summary>
     /// <remarks>
-    /// Do not invoke other methods and properties of the <see cref="NpgsqlConnectionPlDotNET"/> object until the returned Task is complete.
+    /// Do not invoke other methods and properties of the <see cref="NpgsqlConnection"/> object until the returned Task is complete.
     /// </remarks>
     /// <param name="cancellationToken">
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
@@ -179,7 +171,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     void SetupDataSource()
     {
         // Fast path: a pool already corresponds to this exact version of the connection string.
-        if (NpgsqlPoolManagerPlDotNET.Pools.TryGetValue(_connectionString, out _dataSource))
+        if (PoolManager.Pools.TryGetValue(_connectionString, out _dataSource))
         {
             Settings = _dataSource.Settings;  // Great, we already have a pool
             return;
@@ -203,7 +195,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
         // Note that we remove TargetSessionAttributes to make all connection strings that are otherwise identical point to the same pool.
         var canonical = settings.ConnectionStringForMultipleHosts;
 
-        if (NpgsqlPoolManagerPlDotNET.Pools.TryGetValue(canonical, out _dataSource))
+        if (PoolManager.Pools.TryGetValue(canonical, out _dataSource))
         {
             // If this is a multi-host data source and the user specified a TargetSessionAttributes, create a wrapper in front of the
             // MultiHostDataSource with that TargetSessionAttributes.
@@ -212,28 +204,28 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
 
             // The pool was found, but only under the canonical key - we're using a different version
             // for the first time. Map it via our own key for next time.
-            _dataSource = NpgsqlPoolManagerPlDotNET.Pools.GetOrAdd(_connectionString, _dataSource);
+            _dataSource = PoolManager.Pools.GetOrAdd(_connectionString, _dataSource);
             return;
         }
 
         // Really unseen, need to create a new pool
         // The canonical pool is the 'base' pool so we need to set that up first. If someone beats us to it use what they put.
         // The connection string pool can either be added here or above, if it's added above we should just use that.
-        var dataSourceBuilder = new NpgsqlDataSourceBuilderPlDotNET(canonical);
+        var dataSourceBuilder = new NpgsqlDataSourceBuilder(canonical);
         dataSourceBuilder.UseLoggerFactory(NpgsqlLoggingConfiguration.GlobalLoggerFactory);
         dataSourceBuilder.EnableParameterLogging(NpgsqlLoggingConfiguration.GlobalIsParameterLoggingEnabled);
         var newDataSource = dataSourceBuilder.Build();
 
         // See Clone() on the following line:
-        _cloningInstantiator = s => new NpgsqlConnectionPlDotNET(s);
+        _cloningInstantiator = s => new NpgsqlConnection(s);
 
-        _dataSource = NpgsqlPoolManagerPlDotNET.Pools.GetOrAdd(canonical, newDataSource);
+        _dataSource = PoolManager.Pools.GetOrAdd(canonical, newDataSource);
         if (_dataSource == newDataSource)
         {
             Debug.Assert(_dataSource is not MultiHostDataSourceWrapper);
             // If the pool we created was the one that ended up being stored we need to increment the appropriate counter.
             // Avoids a race condition where multiple threads will create a pool but only one will be stored.
-            if (_dataSource is NpgsqlMultiHostDataSourcePlDotNET multiHostConnectorPool)
+            if (_dataSource is NpgsqlMultiHostDataSource multiHostConnectorPool)
                 foreach (var hostPool in multiHostConnectorPool.Pools)
                     NpgsqlEventSource.Log.DataSourceCreated(hostPool);
             else
@@ -249,7 +241,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
         if (_dataSource is NpgsqlMultiHostDataSource multiHostDataSource2 && settings.TargetSessionAttributesParsed.HasValue)
             _dataSource = multiHostDataSource2.WithTargetSession(settings.TargetSessionAttributesParsed.Value);
 
-        _dataSource = NpgsqlPoolManagerPlDotNET.Pools.GetOrAdd(_connectionString, _dataSource);
+        _dataSource = PoolManager.Pools.GetOrAdd(_connectionString, _dataSource);
     }
 
     internal virtual Task Open(bool async, CancellationToken cancellationToken)
@@ -312,19 +304,19 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
                 // to this transaction which has been closed. If so, return that as an optimization rather than
                 // opening a new one and triggering escalation to a distributed transaction.
                 // Otherwise just get a new connector and enlist below.
-                if (enlistToTransaction is not null && _dataSource.TryRentEnlistedPending(enlistToTransaction, (NpgsqlConnectionPlDotNET)this, out connector))
+                if (enlistToTransaction is not null && _dataSource.TryRentEnlistedPending(enlistToTransaction, (NpgsqlConnection)this, out connector))
                 {
                     EnlistedTransaction = enlistToTransaction;
                     enlistToTransaction = null;
                 }
                 else
-                    connector = await _dataSource.Get((NpgsqlConnectionPlDotNET)this, timeout, async, cancellationToken).ConfigureAwait(false);
+                    connector = await _dataSource.Get((NpgsqlConnection)this, timeout, async, cancellationToken).ConfigureAwait(false);
 
                 Debug.Assert(connector.Connection is null,
                     $"Connection for opened connector '{Connector?.Id.ToString() ?? "???"}' is bound to another connection");
 
                 ConnectorBindingScope = ConnectorBindingScope.Connection;
-                connector.Connection = (NpgsqlConnectionPlDotNET)this;
+                connector.Connection = (NpgsqlConnection)this;
                 Connector = connector;
 
                 if (enlistToTransaction is not null)
@@ -554,7 +546,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// <summary>
     /// A cached command handed out by <see cref="CreateCommand" />, which is returned when disposed. Useful for reducing allocations.
     /// </summary>
-    internal NpgsqlCommandPlDotNET? CachedCommand { get; set; }
+    internal NpgsqlCommand? CachedCommand { get; set; }
 
     /// <summary>
     /// Creates and returns a <see cref="System.Data.Common.DbCommand"/>
@@ -564,9 +556,9 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     protected override DbCommand CreateDbCommand() => CreateCommand();
 
     /// <summary>
-    /// Creates and returns a <see cref="NpgsqlCommandPlDotNET"/> object associated with the <see cref="NpgsqlConnectionPlDotNET"/>.
+    /// Creates and returns a <see cref="NpgsqlCommand"/> object associated with the <see cref="NpgsqlConnection"/>.
     /// </summary>
-    /// <returns>A <see cref="NpgsqlCommandPlDotNET"/> object.</returns>
+    /// <returns>A <see cref="NpgsqlCommand"/> object.</returns>
     public new virtual NpgsqlCommand CreateCommand()
     {
         CheckDisposed();
@@ -579,7 +571,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
             return cachedCommand;
         }
 
-        return NpgsqlCommandPlDotNET.CreateCachedCommand((NpgsqlConnectionPlDotNET)this);
+        return NpgsqlCommand.CreateCachedCommand((NpgsqlConnection)this);
     }
 
     /// <summary>
@@ -605,7 +597,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
             return cachedBatch;
         }
 
-        return NpgsqlBatch.CreateCachedBatch((NpgsqlConnectionPlDotNET)this);
+        return NpgsqlBatch.CreateCachedBatch((NpgsqlConnection)this);
     }
 
     #endregion Command / Batch creation
@@ -623,24 +615,24 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// <summary>
     /// Begins a database transaction.
     /// </summary>
-    /// <returns>A <see cref="NpgsqlTransactionPlDotNET"/> object representing the new transaction.</returns>
+    /// <returns>A <see cref="NpgsqlTransaction"/> object representing the new transaction.</returns>
     /// <remarks>
     /// Nested transactions are not supported.
     /// Transactions created by this method will have the <see cref="IsolationLevel.ReadCommitted"/> isolation level.
     /// </remarks>
-    public new NpgsqlTransactionPlDotNET BeginTransaction()
+    public new NpgsqlTransaction BeginTransaction()
         => BeginTransaction(IsolationLevel.Unspecified);
 
     /// <summary>
     /// Begins a database transaction with the specified isolation level.
     /// </summary>
     /// <param name="level">The isolation level under which the transaction should run.</param>
-    /// <returns>A <see cref="NpgsqlTransactionPlDotNET"/> object representing the new transaction.</returns>
+    /// <returns>A <see cref="NpgsqlTransaction"/> object representing the new transaction.</returns>
     /// <remarks>Nested transactions are not supported.</remarks>
-    public new NpgsqlTransactionPlDotNET BeginTransaction(IsolationLevel level)
+    public new NpgsqlTransaction BeginTransaction(IsolationLevel level)
         => BeginTransaction(async: false, level, CancellationToken.None).GetAwaiter().GetResult();
 
-    internal virtual async ValueTask<NpgsqlTransactionPlDotNET> BeginTransaction(bool async, IsolationLevel level, CancellationToken cancellationToken)
+    internal virtual async ValueTask<NpgsqlTransaction> BeginTransaction(bool async, IsolationLevel level, CancellationToken cancellationToken)
     {
         if (level == IsolationLevel.Chaos)
             ThrowHelper.ThrowNotSupportedException($"Unsupported IsolationLevel: {nameof(IsolationLevel.Chaos)}");
@@ -662,7 +654,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
             // But we start a user action to check the cancellation token and generate exceptions
             using var _ = connector.StartUserAction(cancellationToken);
 
-            connector.Transaction ??= new NpgsqlTransactionPlDotNET(connector);
+            connector.Transaction ??= new NpgsqlTransaction(connector);
             connector.Transaction.Init(level);
             return connector.Transaction;
         }
@@ -698,7 +690,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// Nested transactions are not supported.
     /// Transactions created by this method will have the <see cref="IsolationLevel.ReadCommitted"/> isolation level.
     /// </remarks>
-    public new ValueTask<NpgsqlTransactionPlDotNET> BeginTransactionAsync(CancellationToken cancellationToken = default)
+    public new ValueTask<NpgsqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
         => BeginTransactionAsync(IsolationLevel.Unspecified, cancellationToken);
 
     /// <summary>
@@ -712,7 +704,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// <remarks>
     /// Nested transactions are not supported.
     /// </remarks>
-    public new ValueTask<NpgsqlTransactionPlDotNET> BeginTransactionAsync(IsolationLevel level, CancellationToken cancellationToken = default)
+    public new ValueTask<NpgsqlTransaction> BeginTransactionAsync(IsolationLevel level, CancellationToken cancellationToken = default)
         => BeginTransaction(async: true, level, cancellationToken);
 
     /// <summary>
@@ -756,7 +748,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
         // Note that even when #1378 is implemented in some way, we should check for mono and go volatile in any case -
         // distributed transactions aren't supported.
 
-        var volatileResourceManager = new VolatileResourceManager((NpgsqlConnectionPlDotNET)this, transaction);
+        var volatileResourceManager = new VolatileResourceManager((NpgsqlConnection)this, transaction);
         transaction.EnlistVolatile(volatileResourceManager, EnlistmentOptions.None);
         volatileResourceManager.Init();
         EnlistedTransaction = transaction;
@@ -919,7 +911,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     }
 
     /// <summary>
-    /// Releases all resources used by the <see cref="NpgsqlConnectionPlDotNET"/>.
+    /// Releases all resources used by the <see cref="NpgsqlConnection"/>.
     /// </summary>
     /// <param name="disposing"><see langword="true"/> when called from <see cref="Dispose"/>;
     /// <see langword="false"/> when being called from the finalizer.</param>
@@ -933,7 +925,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     }
 
     /// <summary>
-    /// Releases all resources used by the <see cref="NpgsqlConnectionPlDotNET"/>.
+    /// Releases all resources used by the <see cref="NpgsqlConnection"/>.
     /// </summary>
     public override async ValueTask DisposeAsync()
     {
@@ -1544,7 +1536,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     void CheckDisposed()
     {
         if (_disposed)
-            ThrowHelper.ThrowObjectDisposedException(nameof(NpgsqlConnectionPlDotNET));
+            ThrowHelper.ThrowObjectDisposedException(nameof(NpgsqlConnection));
     }
 
     internal void CheckReady()
@@ -1618,9 +1610,9 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
                 Debug.Assert(Settings.Multiplexing);
                 Debug.Assert(_dataSource != null);
 
-                var connector = await _dataSource.Get((NpgsqlConnectionPlDotNET)this, timeout, async, cancellationToken).ConfigureAwait(false);
+                var connector = await _dataSource.Get((NpgsqlConnection)this, timeout, async, cancellationToken).ConfigureAwait(false);
                 Connector = connector;
-                connector.Connection = (NpgsqlConnectionPlDotNET)this;
+                connector.Connection = (NpgsqlConnection)this;
                 ConnectorBindingScope = scope;
                 return connector;
             }
@@ -1639,7 +1631,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     internal EndScopeDisposable StartTemporaryBindingScope(out NpgsqlConnector connector)
     {
         connector = StartBindingScope(ConnectorBindingScope.Temporary);
-        return new EndScopeDisposable((NpgsqlConnectionPlDotNET)this);
+        return new EndScopeDisposable((NpgsqlConnection)this);
     }
 
     internal T CheckOpenAndRunInTemporaryScope<T>(Func<NpgsqlConnector, T> func)
@@ -1706,7 +1698,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// </param>
     /// <returns>The collection specified.</returns>
     public override DataTable GetSchema(string? collectionName, string?[]? restrictions)
-        => NpgsqlSchema.GetSchema(async: false, (NpgsqlConnectionPlDotNET)this, collectionName, restrictions).GetAwaiter().GetResult();
+        => NpgsqlSchema.GetSchema(async: false, (NpgsqlConnection)this, collectionName, restrictions).GetAwaiter().GetResult();
 
     /// <summary>
     /// Asynchronously returns the supported collections.
@@ -1742,7 +1734,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// </param>
     /// <returns>The collection specified.</returns>
     public override Task<DataTable> GetSchemaAsync(string collectionName, string?[]? restrictions, CancellationToken cancellationToken = default)
-        => NpgsqlSchema.GetSchema(async: true, (NpgsqlConnectionPlDotNET)this, collectionName, restrictions, cancellationToken);
+        => NpgsqlSchema.GetSchema(async: true, (NpgsqlConnection)this, collectionName, restrictions, cancellationToken);
 
     #endregion Schema operations
 
@@ -1790,7 +1782,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
         if (csb.PersistSecurityInfo && !Settings.PersistSecurityInfo)
             csb.PersistSecurityInfo = false;
 
-        return new NpgsqlConnectionPlDotNET(csb.ToString())
+        return new NpgsqlConnection(csb.ToString())
         {
             SslClientAuthenticationOptionsCallback = SslClientAuthenticationOptionsCallback ?? _dataSource?.SslClientAuthenticationOptionsCallback,
 #pragma warning disable CS0618 // Obsolete
@@ -1815,7 +1807,7 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
         if (csb.PersistSecurityInfo && !Settings.PersistSecurityInfo)
             csb.PersistSecurityInfo = false;
 
-        return new NpgsqlConnectionPlDotNET(csb.ToString())
+        return new NpgsqlConnection(csb.ToString())
         {
             SslClientAuthenticationOptionsCallback = SslClientAuthenticationOptionsCallback ?? _dataSource?.SslClientAuthenticationOptionsCallback,
 #pragma warning disable CS0618 // Obsolete
@@ -1859,14 +1851,14 @@ public class NpgsqlConnection : DbConnection, ICloneable, IComponent
     /// immediately closed, and any busy connections which were opened before <see cref="ClearPool"/> was called
     /// will be closed when returned to the pool.
     /// </summary>
-    public static void ClearPool(NpgsqlConnection connection) => NpgsqlPoolManagerPlDotNET.Clear(connection._connectionString);
+    public static void ClearPool(NpgsqlConnection connection) => PoolManager.Clear(connection._connectionString);
 
     /// <summary>
     /// Clear all connection pools. All idle physical connections in all pools are immediately closed, and any busy
     /// connections which were opened before <see cref="ClearAllPools"/> was called will be closed when returned
     /// to their pool.
     /// </summary>
-    public static void ClearAllPools() => NpgsqlPoolManagerPlDotNET.ClearAll();
+    public static void ClearAllPools() => PoolManager.ClearAll();
 
     /// <summary>
     /// Unprepares all prepared statements on this connection.
@@ -1981,14 +1973,14 @@ readonly struct EndScopeDisposable(NpgsqlConnection connection) : IDisposable
 #region Delegates
 
 /// <summary>
-/// Represents a method that handles the <see cref="NpgsqlConnectionPlDotNET.Notice"/> event.
+/// Represents a method that handles the <see cref="NpgsqlConnection.Notice"/> event.
 /// </summary>
 /// <param name="sender">The source of the event.</param>
 /// <param name="e">A <see cref="NpgsqlNoticeEventArgs"/> that contains the notice information (e.g. message, severity...).</param>
 public delegate void NoticeEventHandler(object sender, NpgsqlNoticeEventArgs e);
 
 /// <summary>
-/// Represents a method that handles the <see cref="NpgsqlConnectionPlDotNET.Notification"/> event.
+/// Represents a method that handles the <see cref="NpgsqlConnection.Notification"/> event.
 /// </summary>
 /// <param name="sender">The source of the event.</param>
 /// <param name="e">A <see cref="NpgsqlNotificationEventArgs"/> that contains the notification payload.</param>
