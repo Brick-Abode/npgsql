@@ -84,7 +84,7 @@ public abstract class NpgsqlDataSourceOriginal : DbDataSource
     readonly INpgsqlNameTranslator _defaultNameTranslator;
 
     /// <summary>
-    /// Constructor used by
+    /// Constructor used by PlDotNET
     /// </summary>
     internal NpgsqlDataSourceOriginal()
     {
