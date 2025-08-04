@@ -2,7 +2,7 @@
 
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
-        <NoWarn>1591</NoWarn>
+        <NoWarn>1591;NETSDK1210</NoWarn>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <!-- <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles> -->
         <IsPackable>false</IsPackable>

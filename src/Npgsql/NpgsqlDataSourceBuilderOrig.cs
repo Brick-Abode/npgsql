@@ -18,9 +18,9 @@ namespace Npgsql;
 /// <summary>
 /// Provides a simple API for configuring and creating an <see cref="NpgsqlDataSource" />, from which database connections can be obtained.
 /// </summary>
-public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
+public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
 {
-    static UnsupportedTypeInfoResolver<NpgsqlDataSourceBuilder> UnsupportedTypeInfoResolver { get; } = new();
+    static UnsupportedTypeInfoResolver<NpgsqlDataSourceBuilderOrig> UnsupportedTypeInfoResolver { get; } = new();
 
     readonly NpgsqlSlimDataSourceBuilder _internalBuilder;
 
@@ -69,13 +69,13 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
             return builder;
         }, overwrite);
 
-    static NpgsqlDataSourceBuilder()
+    static NpgsqlDataSourceBuilderOrig()
         => ResetGlobalMappings(overwrite: false);
 
     /// <summary>
-    /// Constructs a new <see cref="NpgsqlDataSourceBuilder" />, optionally starting out from the given <paramref name="connectionString"/>.
+    /// Constructs a new <see cref="NpgsqlDataSourceBuilderOrig" />, optionally starting out from the given <paramref name="connectionString"/>.
     /// </summary>
-    public NpgsqlDataSourceBuilder(string? connectionString = null)
+    public NpgsqlDataSourceBuilderOrig(string? connectionString = null)
     {
         _internalBuilder = new(new NpgsqlConnectionStringBuilder(connectionString));
         _internalBuilder.ConfigureDefaultFactories = static instance =>
@@ -102,7 +102,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </summary>
     /// <param name="loggerFactory">The logger factory to be used.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder UseLoggerFactory(ILoggerFactory? loggerFactory)
+    public NpgsqlDataSourceBuilderOrig UseLoggerFactory(ILoggerFactory? loggerFactory)
     {
         _internalBuilder.UseLoggerFactory(loggerFactory);
         return this;
@@ -115,7 +115,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </summary>
     /// <param name="parameterLoggingEnabled">If <see langword="true" />, then sensitive data is logged.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder EnableParameterLogging(bool parameterLoggingEnabled = true)
+    public NpgsqlDataSourceBuilderOrig EnableParameterLogging(bool parameterLoggingEnabled = true)
     {
         _internalBuilder.EnableParameterLogging(parameterLoggingEnabled);
         return this;
@@ -124,7 +124,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// <summary>
     /// Configures type loading options for the DataSource.
     /// </summary>
-    public NpgsqlDataSourceBuilder ConfigureTypeLoading(Action<NpgsqlTypeLoadingOptionsBuilder> configureAction)
+    public NpgsqlDataSourceBuilderOrig ConfigureTypeLoading(Action<NpgsqlTypeLoadingOptionsBuilder> configureAction)
     {
         _internalBuilder.ConfigureTypeLoading(configureAction);
         return this;
@@ -134,7 +134,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// Configures OpenTelemetry tracing options.
     /// </summary>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder ConfigureTracing(Action<NpgsqlTracingOptionsBuilder> configureAction)
+    public NpgsqlDataSourceBuilderOrig ConfigureTracing(Action<NpgsqlTracingOptionsBuilder> configureAction)
     {
         _internalBuilder.ConfigureTracing(configureAction);
         return this;
@@ -145,7 +145,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </summary>
     /// <param name="serializerOptions">Options to customize JSON serialization and deserialization.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder ConfigureJsonOptions(JsonSerializerOptions serializerOptions)
+    public NpgsqlDataSourceBuilderOrig ConfigureJsonOptions(JsonSerializerOptions serializerOptions)
     {
         _internalBuilder.ConfigureJsonOptions(serializerOptions);
         return this;
@@ -166,7 +166,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </remarks>
     [RequiresUnreferencedCode("Json serializer may perform reflection on trimmed types.")]
     [RequiresDynamicCode("Serializing arbitrary types to json can require creating new generic types or methods, which requires creating code at runtime. This may not work when AOT compiling.")]
-    public NpgsqlDataSourceBuilder EnableDynamicJson(Type[]? jsonbClrTypes = null, Type[]? jsonClrTypes = null)
+    public NpgsqlDataSourceBuilderOrig EnableDynamicJson(Type[]? jsonbClrTypes = null, Type[]? jsonClrTypes = null)
     {
         _internalBuilder.EnableDynamicJson(jsonbClrTypes, jsonClrTypes);
         return this;
@@ -178,7 +178,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     [RequiresUnreferencedCode("The mapping of PostgreSQL records as .NET tuples requires reflection usage which is incompatible with trimming.")]
     [RequiresDynamicCode("The mapping of PostgreSQL records as .NET tuples requires dynamic code usage which is incompatible with NativeAOT.")]
-    public NpgsqlDataSourceBuilder EnableRecordsAsTuples()
+    public NpgsqlDataSourceBuilderOrig EnableRecordsAsTuples()
     {
         AddTypeInfoResolverFactory(new TupledRecordTypeInfoResolverFactory());
         return this;
@@ -190,7 +190,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     [RequiresUnreferencedCode("The use of unmapped enums, ranges or multiranges requires reflection usage which is incompatible with trimming.")]
     [RequiresDynamicCode("The use of unmapped enums, ranges or multiranges requires dynamic code usage which is incompatible with NativeAOT.")]
-    public NpgsqlDataSourceBuilder EnableUnmappedTypes()
+    public NpgsqlDataSourceBuilderOrig EnableUnmappedTypes()
     {
         AddTypeInfoResolverFactory(new UnmappedTypeInfoResolverFactory());
         return this;
@@ -214,7 +214,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     [Obsolete("Use UseSslClientAuthenticationOptionsCallback")]
-    public NpgsqlDataSourceBuilder UseUserCertificateValidationCallback(RemoteCertificateValidationCallback userCertificateValidationCallback)
+    public NpgsqlDataSourceBuilderOrig UseUserCertificateValidationCallback(RemoteCertificateValidationCallback userCertificateValidationCallback)
     {
         _internalBuilder.UseUserCertificateValidationCallback(userCertificateValidationCallback);
         return this;
@@ -226,7 +226,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// <param name="clientCertificate">The client certificate to be sent to PostgreSQL when opening a connection.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     [Obsolete("Use UseSslClientAuthenticationOptionsCallback")]
-    public NpgsqlDataSourceBuilder UseClientCertificate(X509Certificate? clientCertificate)
+    public NpgsqlDataSourceBuilderOrig UseClientCertificate(X509Certificate? clientCertificate)
     {
         _internalBuilder.UseClientCertificate(clientCertificate);
         return this;
@@ -238,7 +238,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// <param name="clientCertificates">The client certificate collection to be sent to PostgreSQL when opening a connection.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     [Obsolete("Use UseSslClientAuthenticationOptionsCallback")]
-    public NpgsqlDataSourceBuilder UseClientCertificates(X509CertificateCollection? clientCertificates)
+    public NpgsqlDataSourceBuilderOrig UseClientCertificates(X509CertificateCollection? clientCertificates)
     {
         _internalBuilder.UseClientCertificates(clientCertificates);
         return this;
@@ -254,7 +254,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </para>
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder UseSslClientAuthenticationOptionsCallback(Action<SslClientAuthenticationOptions>? sslClientAuthenticationOptionsCallback)
+    public NpgsqlDataSourceBuilderOrig UseSslClientAuthenticationOptionsCallback(Action<SslClientAuthenticationOptions>? sslClientAuthenticationOptionsCallback)
     {
         _internalBuilder.UseSslClientAuthenticationOptionsCallback(sslClientAuthenticationOptionsCallback);
         return this;
@@ -278,7 +278,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     [Obsolete("Use UseSslClientAuthenticationOptionsCallback")]
-    public NpgsqlDataSourceBuilder UseClientCertificatesCallback(Action<X509CertificateCollection>? clientCertificatesCallback)
+    public NpgsqlDataSourceBuilderOrig UseClientCertificatesCallback(Action<X509CertificateCollection>? clientCertificatesCallback)
     {
         _internalBuilder.UseClientCertificatesCallback(clientCertificatesCallback);
         return this;
@@ -289,7 +289,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </summary>
     /// <param name="rootCertificate">The CA certificate.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder UseRootCertificate(X509Certificate2? rootCertificate)
+    public NpgsqlDataSourceBuilderOrig UseRootCertificate(X509Certificate2? rootCertificate)
     {
         _internalBuilder.UseRootCertificate(rootCertificate);
         return this;
@@ -305,7 +305,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// and might change during the lifetime of the application.
     /// When that's not the case, use the overload which directly accepts the certificate.
     /// </remarks>
-    public NpgsqlDataSourceBuilder UseRootCertificateCallback(Func<X509Certificate2>? rootCertificateCallback)
+    public NpgsqlDataSourceBuilderOrig UseRootCertificateCallback(Func<X509Certificate2>? rootCertificateCallback)
     {
         _internalBuilder.UseRootCertificateCallback(rootCertificateCallback);
         return this;
@@ -331,7 +331,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// token fetching, do so within the provided callback.
     /// </para>
     /// </remarks>
-    public NpgsqlDataSourceBuilder UsePeriodicPasswordProvider(
+    public NpgsqlDataSourceBuilderOrig UsePeriodicPasswordProvider(
         Func<NpgsqlConnectionStringBuilder, CancellationToken, ValueTask<string>>? passwordProvider,
         TimeSpan successRefreshInterval,
         TimeSpan failureRefreshInterval)
@@ -356,7 +356,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// data or returns quickly otherwise. Any unnecessary delay will affect connection opening time.
     /// </para>
     /// </remarks>
-    public NpgsqlDataSourceBuilder UsePasswordProvider(
+    public NpgsqlDataSourceBuilderOrig UsePasswordProvider(
         Func<NpgsqlConnectionStringBuilder, string>? passwordProvider,
         Func<NpgsqlConnectionStringBuilder, CancellationToken, ValueTask<string>>? passwordProviderAsync)
     {
@@ -374,7 +374,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </para>
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder UseNegotiateOptionsCallback(Action<NegotiateAuthenticationClientOptions>? negotiateOptionsCallback)
+    public NpgsqlDataSourceBuilderOrig UseNegotiateOptionsCallback(Action<NegotiateAuthenticationClientOptions>? negotiateOptionsCallback)
     {
         _internalBuilder.UseNegotiateOptionsCallback(negotiateOptionsCallback);
         return this;
@@ -411,7 +411,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// Defaults to <see cref="DefaultNameTranslator" />.
     /// </param>
     /// <typeparam name="TEnum">The .NET enum type to be mapped</typeparam>
-    public NpgsqlDataSourceBuilder MapEnum<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TEnum>(string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
+    public NpgsqlDataSourceBuilderOrig MapEnum<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TEnum>(string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
         where TEnum : struct, Enum
     {
         _internalBuilder.MapEnum<TEnum>(pgName, nameTranslator);
@@ -444,7 +444,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// Defaults to <see cref="DefaultNameTranslator" />.
     /// </param>
     [RequiresDynamicCode("Calling MapEnum with a Type can require creating new generic types or methods. This may not work when AOT compiling.")]
-    public NpgsqlDataSourceBuilder MapEnum([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+    public NpgsqlDataSourceBuilderOrig MapEnum([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
         Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
     {
         _internalBuilder.MapEnum(clrType, pgName, nameTranslator);
@@ -477,7 +477,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </param>
     /// <typeparam name="T">The .NET type to be mapped</typeparam>
     [RequiresDynamicCode("Mapping composite types involves serializing arbitrary types which can require creating new generic types or methods. This is currently unsupported with NativeAOT, vote on issue #5303 if this is important to you.")]
-    public NpgsqlDataSourceBuilder MapComposite<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)] T>(
+    public NpgsqlDataSourceBuilderOrig MapComposite<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)] T>(
         string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
     {
         _internalBuilder.MapComposite(typeof(T), pgName, nameTranslator);
@@ -510,7 +510,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// Defaults to <see cref="DefaultNameTranslator" />.
     /// </param>
     [RequiresDynamicCode("Mapping composite types involves serializing arbitrary types which can require creating new generic types or methods. This is currently unsupported with NativeAOT, vote on issue #5303 if this is important to you.")]
-    public NpgsqlDataSourceBuilder MapComposite([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+    public NpgsqlDataSourceBuilderOrig MapComposite([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
         Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
     {
         _internalBuilder.MapComposite(clrType, pgName, nameTranslator);
@@ -546,7 +546,7 @@ public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// turn this off.
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder UsePhysicalConnectionInitializer(
+    public NpgsqlDataSourceBuilderOrig UsePhysicalConnectionInitializer(
         Action<NpgsqlConnection>? connectionInitializer,
         Func<NpgsqlConnection, Task>? connectionInitializerAsync)
     {

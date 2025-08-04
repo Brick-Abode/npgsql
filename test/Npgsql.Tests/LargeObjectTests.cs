@@ -21,7 +21,11 @@ public class LargeObjectTests : TestBase
             stream.Write(buf, 0, buf.Length);
             stream.Seek(0, System.IO.SeekOrigin.Begin);
             var buf2 = new byte[buf.Length];
+#if NET7_0_OR_GREATER
             stream.ReadExactly(buf2, 0, buf2.Length);
+#else
+            stream.Read(buf2, 0, buf2.Length);
+#endif
             Assert.That(buf.SequenceEqual(buf2));
 
             Assert.AreEqual(5, stream.Position);

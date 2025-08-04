@@ -12,7 +12,7 @@ using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests.Types;
 
-class RangeTests : MultiplexingTestBase
+public class RangeTests : MultiplexingTestBase
 {
     static readonly TestCaseData[] RangeTestCases =
     [

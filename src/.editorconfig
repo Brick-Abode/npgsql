@@ -14,3 +14,6 @@ dotnet_diagnostic.RS0026.severity = none
 dotnet_diagnostic.RS0027.severity = none
 
 dotnet_diagnostic.CA2007.severity = warning;
+
+# XML comment has cref attributes that could not be resolved
+dotnet_diagnostic.CS1574.severity = none

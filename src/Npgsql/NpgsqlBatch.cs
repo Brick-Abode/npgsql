@@ -110,7 +110,7 @@ public class NpgsqlBatch : DbBatch
     internal NpgsqlBatch(NpgsqlConnector connector)
     {
         GC.SuppressFinalize(this);
-        Command = new(this, connector, DefaultBatchCommandsSize);
+        Command = new(connector, this, DefaultBatchCommandsSize);
         BatchCommands = new NpgsqlBatchCommandCollection(Command.InternalBatchCommands);
     }
 

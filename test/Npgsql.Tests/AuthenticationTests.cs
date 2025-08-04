@@ -40,7 +40,7 @@ public class AuthenticationTests(MultiplexingMode multiplexingMode) : Multiplexi
         // No password provided
         Assert.That(() => dataSource.OpenConnectionAsync(), Throws.Exception.TypeOf<NpgsqlException>());
 
-        var connectionStringBuilder = new NpgsqlConnectionStringBuilder(TestUtil.ConnectionString);
+        var connectionStringBuilder = new NpgsqlConnectionStringBuilder(TestUtil.ConnectionString) { IntegratedSecurity = false };
         dataSource.Password = connectionStringBuilder.Password!;
 
         await using var connection1 = await dataSource.OpenConnectionAsync();

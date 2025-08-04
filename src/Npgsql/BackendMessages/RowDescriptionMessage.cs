@@ -33,8 +33,8 @@ sealed class RowDescriptionMessage : IBackendMessage
             CompareOptions.IgnoreWidth | CompareOptions.IgnoreCase | CompareOptions.IgnoreKanaType);
 
     readonly bool _connectorOwned;
-    FieldDescription?[] _fields;
-    readonly Dictionary<string, int> _nameIndex;
+    internal FieldDescription?[] _fields;
+    internal readonly Dictionary<string, int> _nameIndex;
     Dictionary<string, int>? _insensitiveIndex;
     ColumnInfo[]? _lastConverterInfoCache;
 
@@ -157,7 +157,7 @@ sealed class RowDescriptionMessage : IBackendMessage
         cache.CopyTo(values.AsSpan());
     }
 
-    public int Count { get; private set; }
+    public int Count { get; internal set; }
 
     /// <summary>
     /// Given a string name, returns the field's ordinal index in the row.
