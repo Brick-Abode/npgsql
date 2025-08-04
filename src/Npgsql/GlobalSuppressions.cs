@@ -11,4 +11,5 @@ using System.Diagnostics.CodeAnalysis;
 [assembly: SuppressMessage("Design", "CA1710:Identifiers should have correct suffix", Justification = "Disagree")]
 [assembly: SuppressMessage("Design", "CA1707:Remove the underscores from member name", Justification = "Seems to cause some false positives on implicit/explicit cast operators, strange")]
 [assembly: SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "All I/O methods are both sync and async, avoid clutter")]
-
+[assembly: SuppressMessage("Reliability", "CA2007:Consider calling ConfigureAwait on the awaited task", Justification = "<Pending>", Scope = "member", Target = "~M:Npgsql.NpgsqlCommand.ExecuteReader(System.Boolean,System.Data.CommandBehavior,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{Npgsql.NpgsqlDataReader}")]
+[assembly: SuppressMessage("Reliability", "CA2007:Consider calling ConfigureAwait on the awaited task", Justification = "<Pending>", Scope = "member", Target = "~M:Npgsql.NpgsqlDataReader.Close(System.Boolean,System.Boolean,System.Boolean)~System.Threading.Tasks.Task")]

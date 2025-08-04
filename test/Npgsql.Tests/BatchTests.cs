@@ -235,7 +235,7 @@ public class BatchTests : MultiplexingTestBase
 
         await using var batch = new NpgsqlBatch(conn)
         {
-            BatchCommands = { new($"{sproc}") {CommandType = CommandType.StoredProcedure} }
+            BatchCommands = { new($"{sproc}") { CommandType = CommandType.StoredProcedure } }
         };
 
         await using var reader = await batch.ExecuteReaderAsync(Behavior);
@@ -375,7 +375,7 @@ public class BatchTests : MultiplexingTestBase
         };
 
         await using (var reader = await batch.ExecuteReaderAsync(CommandBehavior.CloseConnection | Behavior))
-            while (reader.Read()) {}
+            while (reader.Read()) { }
         Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
     }
 

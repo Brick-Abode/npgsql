@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace Npgsql.Tests;
 
 [FixtureLifeCycle(LifeCycle.InstancePerTestCase)] // Parallel access to a single buffer
-class ReadBufferTests
+public class ReadBufferTests
 {
     [Test]
     public void Skip()

@@ -12,11 +12,12 @@ using Npgsql.Internal;
 using Npgsql.Internal.ResolverFactories;
 using Npgsql.Properties;
 using Npgsql.Util;
+using Npgsql;
 
 namespace Npgsql;
 
 /// <inheritdoc />
-public abstract class NpgsqlDataSource : DbDataSource
+public abstract class NpgsqlDataSourceOrig : DbDataSource
 {
     /// <inheritdoc />
     public override string ConnectionString { get; }
@@ -25,9 +26,9 @@ public abstract class NpgsqlDataSource : DbDataSource
     /// Contains the connection string returned to the user from <see cref="NpgsqlConnection.ConnectionString"/>
     /// after the connection has been opened. Does not contain the password unless Persist Security Info=true.
     /// </summary>
-    internal NpgsqlConnectionStringBuilder Settings { get; }
+    internal NpgsqlConnectionStringBuilder Settings { get; set; }
 
-    internal NpgsqlDataSourceConfiguration Configuration { get; }
+    internal NpgsqlDataSourceConfiguration Configuration { get; set; }
     internal NpgsqlLoggingConfiguration LoggingConfiguration { get; }
 
     readonly PgTypeInfoResolverChain _resolverChain;
@@ -82,7 +83,24 @@ public abstract class NpgsqlDataSource : DbDataSource
 
     readonly INpgsqlNameTranslator _defaultNameTranslator;
 
-    internal NpgsqlDataSource(
+    /// <summary>
+    /// Constructor used by PlDotNET
+    /// </summary>
+    internal NpgsqlDataSourceOrig()
+    {
+        ConnectionString = default!;
+        Settings = default!;
+        Configuration = default!;
+        LoggingConfiguration = default!;
+        _defaultNameTranslator = default!;
+        _connectionLogger = default!;
+        TransportSecurityHandler = default!;
+        IntegratedSecurityHandler = default!;
+        MetricsReporter = default!;
+        Name = default!;
+    }
+
+    internal NpgsqlDataSourceOrig(
         NpgsqlConnectionStringBuilder settings,
         NpgsqlDataSourceConfiguration dataSourceConfig)
     {
@@ -108,8 +126,11 @@ public abstract class NpgsqlDataSource : DbDataSource
                 var resolverChain,
                 _defaultNameTranslator,
                 ConnectionInitializer,
-                ConnectionInitializerAsync,
-                _)
+                ConnectionInitializerAsync
+#if NET7_0_OR_GREATER
+                , _
+#endif
+                )
             = dataSourceConfig;
         _connectionLogger = LoggingConfiguration.ConnectionLogger;
 
@@ -132,12 +153,12 @@ public abstract class NpgsqlDataSource : DbDataSource
         }
 
         Name = name ?? ConnectionString;
-        MetricsReporter = new MetricsReporter(this);
+        MetricsReporter = new MetricsReporter((NpgsqlDataSource)this);
     }
 
     /// <inheritdoc cref="DbDataSource.CreateConnection" />
     public new NpgsqlConnection CreateConnection()
-        => NpgsqlConnection.FromDataSource(this);
+        => NpgsqlConnection.FromDataSource((NpgsqlDataSource)this);
 
     /// <inheritdoc cref="DbDataSource.OpenConnection" />
     public new NpgsqlConnection OpenConnection()
@@ -504,7 +525,7 @@ public abstract class NpgsqlDataSource : DbDataSource
     }
 
     /// <inheritdoc />
-    protected sealed override ValueTask DisposeAsyncCore()
+    protected override ValueTask DisposeAsyncCore()
     {
         if (Interlocked.CompareExchange(ref _isDisposed, 1, 0) == 0)
             return DisposeAsyncBase();

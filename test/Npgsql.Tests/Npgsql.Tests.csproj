@@ -1,4 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk" ToolsVersion="15.0">
+  <PropertyGroup>
+    <TargetFramework>$(TargetFramework)</TargetFramework>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NUnit" />
     <PackageReference Include="Microsoft.Extensions.Logging" />

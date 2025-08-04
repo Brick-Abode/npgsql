@@ -12,7 +12,7 @@ namespace Npgsql;
 /// <summary>
 /// Represents a transaction to be made in a PostgreSQL database. This class cannot be inherited.
 /// </summary>
-public sealed class NpgsqlTransaction : DbTransaction
+public class NpgsqlTransactionOrig : DbTransaction
 {
     #region Fields and Properties
 
@@ -31,7 +31,9 @@ public sealed class NpgsqlTransaction : DbTransaction
 
     // Note that with ambient transactions, it's possible for a transaction to be pending after its connection
     // is already closed. So we capture the connector and perform everything directly on it.
-    NpgsqlConnector _connector;
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
+    protected NpgsqlConnector _connector;
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
     /// <summary>
     /// Specifies the <see cref="NpgsqlConnection"/> object associated with the transaction.
@@ -60,17 +62,30 @@ public sealed class NpgsqlTransaction : DbTransaction
             return _isolationLevel;
         }
     }
-    IsolationLevel _isolationLevel;
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
+    protected IsolationLevel _isolationLevel;
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
-    readonly ILogger _transactionLogger;
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
+    protected readonly ILogger _transactionLogger;
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
-    const IsolationLevel DefaultIsolationLevel = IsolationLevel.ReadCommitted;
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
+    protected const IsolationLevel DefaultIsolationLevel = IsolationLevel.ReadCommitted;
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
 
     #endregion
 
     #region Initialization
 
-    internal NpgsqlTransaction(NpgsqlConnector connector)
+    internal NpgsqlTransactionOrig()
+    {
+        _connector = default!;
+        _transactionLogger = default!;
+    }
+
+
+    internal NpgsqlTransactionOrig(NpgsqlConnector connector)
     {
         _connector = connector;
         _transactionLogger = connector.TransactionLogger;
@@ -395,7 +410,9 @@ public sealed class NpgsqlTransaction : DbTransaction
             ThrowHelper.ThrowObjectDisposedException(nameof(NpgsqlTransaction), _disposeReason);
     }
 
-    static bool RequiresQuoting(string identifier)
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
+    protected static bool RequiresQuoting(string identifier)
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
     {
         Debug.Assert(identifier.Length > 0);
 
@@ -433,7 +450,7 @@ public sealed class NpgsqlTransaction : DbTransaction
             else
                 _connector.Transaction = null;
 
-            _connector.UnboundTransaction = this;
+            _connector.UnboundTransaction = (NpgsqlTransaction)this;
             _connector = null!;
         }
     }

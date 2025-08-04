@@ -334,6 +334,26 @@ public sealed partial class NpgsqlConnector
 
     #region Constructors
 
+    /// <summary>
+    /// Fake constructor used by pldotnet.
+    /// </summary>
+    internal NpgsqlConnector()
+    {
+        DataSource = default!;
+        LoggingConfiguration =  default!;
+        ConnectionLogger =  default!;
+        CommandLogger = default!;
+        TransactionLogger = default!;
+        CopyLogger = default!;
+        State = ConnectorState.Closed;
+        TransactionStatus = TransactionStatus.Idle;
+        Settings = default!;
+        PostgresParameters = new Dictionary<string, string>();
+        DataReader = default!;
+        PreparedStatementManager = default!;
+        CancelLock = default!;
+    }
+
     internal NpgsqlConnector(NpgsqlDataSource dataSource, NpgsqlConnection conn)
         : this(dataSource)
     {
@@ -433,6 +453,7 @@ public sealed partial class NpgsqlConnector
     internal string Database => Settings.Database!;
     string KerberosServiceName => Settings.KerberosServiceName;
     int ConnectionTimeout => Settings.Timeout;
+    bool IntegratedSecurity => Settings.IntegratedSecurity;
 
     #endregion Configuration settings
 
@@ -514,7 +535,7 @@ public sealed partial class NpgsqlConnector
                     .ContinueWith(t =>
                     {
                         // Note that we *must* observe the exception if the task is faulted.
-                        ConnectionLogger.LogError(t.Exception!, "Exception bubbled out of multiplexing read loop", Id);
+                        ConnectionLogger.LogError(t.Exception!, "Exception bubbled out of multiplexing read loop {Id}", Id);
                     }, TaskContinuationOptions.OnlyOnFaulted);
             }
 
@@ -863,6 +884,7 @@ public sealed partial class NpgsqlConnector
                 {
                     // Windows crypto API has a bug with pem certs
                     // See #3650
+                    #pragma warning disable SYSLIB0057
                     using var previousCert = cert;
                     cert = new X509Certificate2(cert.Export(X509ContentType.Pkcs12));
                 }
@@ -1207,7 +1229,7 @@ public sealed partial class NpgsqlConnector
                 }
             }
 
-            ConnectionLogger.LogTrace("Exiting multiplexing read loop", Id);
+            ConnectionLogger.LogTrace("Exiting multiplexing read loop {Id}", Id);
         }
         catch (Exception e)
         {
@@ -1242,7 +1264,7 @@ public sealed partial class NpgsqlConnector
             // "Return" the connector to the pool to for cleanup (e.g. update total connector count)
             DataSource.Return(this);
 
-            ConnectionLogger.LogError(e, "Exception in multiplexing read loop", Id);
+            ConnectionLogger.LogError(e, "Exception in multiplexing read loop {Id}", Id);
         }
 
         Debug.Assert(CommandsInFlightCount == 0);
@@ -1585,7 +1607,7 @@ public sealed partial class NpgsqlConnector
 
     internal Task Rollback(bool async, CancellationToken cancellationToken = default)
     {
-        ConnectionLogger.LogDebug("Rolling back transaction", Id);
+        ConnectionLogger.LogDebug("Rolling back transaction {Id}", Id);
         return ExecuteInternalCommand(PregeneratedMessages.RollbackTransaction, async, cancellationToken);
     }
 
@@ -1859,7 +1881,7 @@ public sealed partial class NpgsqlConnector
                 var socketException = e.InnerException as SocketException;
                 if (socketException == null || socketException.SocketErrorCode != SocketError.ConnectionReset)
                 {
-                    ConnectionLogger.LogDebug(e, "Exception caught while attempting to cancel command", Id);
+                    ConnectionLogger.LogDebug(e, "Exception caught while attempting to cancel command {Id}", Id);
                     return false;
                 }
             }
@@ -2032,7 +2054,7 @@ public sealed partial class NpgsqlConnector
                 }
                 catch (Exception e)
                 {
-                    ConnectionLogger.LogError(e, "Exception while closing connector", Id);
+                    ConnectionLogger.LogError(e, "Exception while closing connector {Id}", Id);
                     Debug.Assert(IsBroken);
                 }
             }
@@ -2169,7 +2191,7 @@ public sealed partial class NpgsqlConnector
                 // (see Open)
             }
 
-            ConnectionLogger.LogTrace("Cleaning up connector", Id);
+            ConnectionLogger.LogTrace("Cleaning up connector {Id}", Id);
             Cleanup();
 
             if (_isKeepAliveEnabled)
@@ -2626,7 +2648,7 @@ public sealed partial class NpgsqlConnector
             }
             catch (Exception e2)
             {
-                ConnectionLogger.LogError(e2, "Further exception while breaking connector on keepalive failure", Id);
+                ConnectionLogger.LogError(e2, "Further exception while breaking connector on keepalive failure {Id}", Id);
             }
         }
         finally
