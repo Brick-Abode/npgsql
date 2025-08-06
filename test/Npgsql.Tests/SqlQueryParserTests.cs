@@ -6,7 +6,7 @@ using NUnit.Framework;
 
 namespace Npgsql.Tests;
 
-public class SqlQueryParserTests
+class SqlQueryParserTests
 {
     [Test]
     public void Parameter_simple()

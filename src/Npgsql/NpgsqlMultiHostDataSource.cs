@@ -12,13 +12,13 @@ using System.Transactions;
 namespace Npgsql;
 
 /// <summary>
-/// An <see cref="NpgsqlDataSourceOrig" /> which manages connections for multiple hosts, is aware of their states (primary, secondary,
+/// An <see cref="NpgsqlDataSource" /> which manages connections for multiple hosts, is aware of their states (primary, secondary,
 /// offline...) and can perform failover and load balancing across them.
 /// </summary>
 /// <remarks>
 /// See <see href="https://www.npgsql.org/doc/failover-and-load-balancing.html" />.
 /// </remarks>
-public class NpgsqlMultiHostDataSourceOrig : NpgsqlDataSourceOrig
+public sealed class NpgsqlMultiHostDataSource : NpgsqlDataSource
 {
     internal override bool OwnsConnectors => false;
 
@@ -30,20 +30,7 @@ public class NpgsqlMultiHostDataSourceOrig : NpgsqlDataSourceOrig
 
     volatile int _roundRobinIndex = -1;
 
-    /// <summary>
-    /// Constructor used by pldotnet
-    /// </summary>
-    internal NpgsqlMultiHostDataSourceOrig()
-        : base()
-    {
-        _pools = default!;
-        _wrappers = default!;
-    }
-
-    /// <summary>
-    /// A public constructor for the class
-    /// </summary>
-    internal NpgsqlMultiHostDataSourceOrig(NpgsqlConnectionStringBuilder settings, NpgsqlDataSourceConfiguration dataSourceConfig)
+    internal NpgsqlMultiHostDataSource(NpgsqlConnectionStringBuilder settings, NpgsqlDataSourceConfiguration dataSourceConfig)
         : base(settings, dataSourceConfig)
     {
         var hosts = settings.Host!.Split(',');
@@ -62,7 +49,7 @@ public class NpgsqlMultiHostDataSourceOrig : NpgsqlDataSourceOrig
                 poolSettings.Host = host.ToString();
 
             _pools[i] = settings.Pooling
-                ? new PoolingDataSource(poolSettings, dataSourceConfig, (NpgsqlMultiHostDataSource)this)
+                ? new PoolingDataSource(poolSettings, dataSourceConfig, this)
                 : new UnpooledDataSource(poolSettings, dataSourceConfig);
         }
 
@@ -70,7 +57,7 @@ public class NpgsqlMultiHostDataSourceOrig : NpgsqlDataSourceOrig
         _wrappers = new MultiHostDataSourceWrapper[targetSessionAttributeValues.Max(t => (int)t) + 1];
         foreach (var targetSessionAttribute in targetSessionAttributeValues)
         {
-            _wrappers[(int)targetSessionAttribute] = new((NpgsqlMultiHostDataSource)this, targetSessionAttribute);
+            _wrappers[(int)targetSessionAttribute] = new(this, targetSessionAttribute);
         }
     }
 
@@ -356,13 +343,13 @@ public class NpgsqlMultiHostDataSourceOrig : NpgsqlDataSourceOrig
     }
 
     internal override void Return(NpgsqlConnector connector)
-        => throw new NpgsqlException("Npgsql bug: a connector was returned to " + nameof(NpgsqlMultiHostDataSourceOrig));
+        => throw new NpgsqlException("Npgsql bug: a connector was returned to " + nameof(NpgsqlMultiHostDataSource));
 
     internal override bool TryGetIdleConnector([NotNullWhen(true)] out NpgsqlConnector? connector)
-        => throw new NpgsqlException("Npgsql bug: trying to get an idle connector from " + nameof(NpgsqlMultiHostDataSourceOrig));
+        => throw new NpgsqlException("Npgsql bug: trying to get an idle connector from " + nameof(NpgsqlMultiHostDataSource));
 
     internal override ValueTask<NpgsqlConnector?> OpenNewConnector(NpgsqlConnection conn, NpgsqlTimeout timeout, bool async, CancellationToken cancellationToken)
-        => throw new NpgsqlException("Npgsql bug: trying to open a new connector from " + nameof(NpgsqlMultiHostDataSourceOrig));
+        => throw new NpgsqlException("Npgsql bug: trying to open a new connector from " + nameof(NpgsqlMultiHostDataSource));
 
     internal override void Clear()
     {

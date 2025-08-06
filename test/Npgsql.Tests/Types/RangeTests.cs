@@ -14,7 +14,7 @@ namespace Npgsql.Tests.Types;
 /// <remarks>
 /// https://www.postgresql.org/docs/current/static/rangetypes.html
 /// </remarks>
-public class RangeTests : MultiplexingTestBase
+class RangeTests : MultiplexingTestBase
 {
     [Test, NUnit.Framework.Description("Resolves a range type handler via the different pathways")]
     public async Task Range_resolution()

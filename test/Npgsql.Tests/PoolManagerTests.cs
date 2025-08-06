@@ -3,7 +3,7 @@
 namespace Npgsql.Tests;
 
 [NonParallelizable]
-public class PoolManagerTests : TestBase
+class PoolManagerTests : TestBase
 {
     [Test]
     public void With_canonical_connection_string()

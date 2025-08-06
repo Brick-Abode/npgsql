@@ -6,7 +6,7 @@ using NUnit.Framework;
 namespace Npgsql.Tests;
 
 [NonParallelizable] // Parallel access to a single buffer
-public class WriteBufferTests
+class WriteBufferTests
 {
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/1275")]
     public void Write_zero_characters()

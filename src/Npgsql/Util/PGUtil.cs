@@ -25,7 +25,7 @@ static class Statics
         LegacyTimestampBehavior = AppContext.TryGetSwitch("Npgsql.EnableLegacyTimestampBehavior", out var enabled) && enabled;
         DisableDateTimeInfinityConversions = AppContext.TryGetSwitch("Npgsql.DisableDateTimeInfinityConversions", out enabled) && enabled;
     }
-
+    
     internal static T Expect<T>(IBackendMessage msg, NpgsqlConnector connector)
     {
         if (msg.GetType() != typeof(T))
@@ -97,10 +97,12 @@ static class Statics
 }
 
 // ReSharper disable once InconsistentNaming
-static partial class PGUtil
+static class PGUtil
 {
     internal static readonly UTF8Encoding UTF8Encoding = new(false, true);
     internal static readonly UTF8Encoding RelaxedUTF8Encoding = new(false, false);
+
+    internal const int BitsInInt = sizeof(int) * 8;
 
     internal static void ValidateBackendMessageCode(BackendMessageCode code)
     {
@@ -136,6 +138,10 @@ static partial class PGUtil
             throw new NpgsqlException("Unknown message code: " + code);
         }
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static int RotateShift(int val, int shift)
+        => (val << shift) | (val >> (BitsInInt - shift));
 
     internal static readonly Task<bool> TrueTask = Task.FromResult(true);
     internal static readonly Task<bool> FalseTask = Task.FromResult(false);

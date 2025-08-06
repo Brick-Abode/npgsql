@@ -18,7 +18,7 @@ namespace Npgsql;
 /// <summary>
 /// Provides a simple API for configuring and creating an <see cref="NpgsqlDataSource" />, from which database connections can be obtained.
 /// </summary>
-public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
+public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
 {
     ILoggerFactory? _loggerFactory;
     bool _sensitiveDataLoggingEnabled;
@@ -49,9 +49,9 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     public string ConnectionString => ConnectionStringBuilder.ToString();
 
     /// <summary>
-    /// Constructs a new <see cref="NpgsqlDataSourceBuilderOrig" />, optionally starting out from the given <paramref name="connectionString"/>.
+    /// Constructs a new <see cref="NpgsqlDataSourceBuilder" />, optionally starting out from the given <paramref name="connectionString"/>.
     /// </summary>
-    public NpgsqlDataSourceBuilderOrig(string? connectionString = null)
+    public NpgsqlDataSourceBuilder(string? connectionString = null)
     {
         ConnectionStringBuilder = new NpgsqlConnectionStringBuilder(connectionString);
 
@@ -63,7 +63,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     /// </summary>
     /// <param name="loggerFactory">The logger factory to be used.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilderOrig UseLoggerFactory(ILoggerFactory? loggerFactory)
+    public NpgsqlDataSourceBuilder UseLoggerFactory(ILoggerFactory? loggerFactory)
     {
         _loggerFactory = loggerFactory;
         return this;
@@ -76,7 +76,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     /// </summary>
     /// <param name="parameterLoggingEnabled">If <see langword="true" />, then sensitive data is logged.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilderOrig EnableParameterLogging(bool parameterLoggingEnabled = true)
+    public NpgsqlDataSourceBuilder EnableParameterLogging(bool parameterLoggingEnabled = true)
     {
         _sensitiveDataLoggingEnabled = parameterLoggingEnabled;
         return this;
@@ -99,7 +99,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     /// </para>
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilderOrig UseUserCertificateValidationCallback(
+    public NpgsqlDataSourceBuilder UseUserCertificateValidationCallback(
         RemoteCertificateValidationCallback userCertificateValidationCallback)
     {
         _userCertificateValidationCallback = userCertificateValidationCallback;
@@ -112,7 +112,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     /// </summary>
     /// <param name="clientCertificate">The client certificate to be sent to PostgreSQL when opening a connection.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilderOrig UseClientCertificate(X509Certificate? clientCertificate)
+    public NpgsqlDataSourceBuilder UseClientCertificate(X509Certificate? clientCertificate)
     {
         if (clientCertificate is null)
             return UseClientCertificatesCallback(null);
@@ -126,7 +126,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     /// </summary>
     /// <param name="clientCertificates">The client certificate collection to be sent to PostgreSQL when opening a connection.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilderOrig UseClientCertificates(X509CertificateCollection? clientCertificates)
+    public NpgsqlDataSourceBuilder UseClientCertificates(X509CertificateCollection? clientCertificates)
         => UseClientCertificatesCallback(clientCertificates is null ? null : certs => certs.AddRange(clientCertificates));
 
     /// <summary>
@@ -146,7 +146,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     /// </para>
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilderOrig UseClientCertificatesCallback(Action<X509CertificateCollection>? clientCertificatesCallback)
+    public NpgsqlDataSourceBuilder UseClientCertificatesCallback(Action<X509CertificateCollection>? clientCertificatesCallback)
     {
         _clientCertificatesCallback = clientCertificatesCallback;
 
@@ -173,7 +173,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     /// token fetching, do so within the provided callback.
     /// </para>
     /// </remarks>
-    public NpgsqlDataSourceBuilderOrig UsePeriodicPasswordProvider(
+    public NpgsqlDataSourceBuilder UsePeriodicPasswordProvider(
         Func<NpgsqlConnectionStringBuilder, CancellationToken, ValueTask<string>>? passwordProvider,
         TimeSpan successRefreshInterval,
         TimeSpan failureRefreshInterval)
@@ -245,7 +245,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     [RequiresUnreferencedCode("Composite type mapping currently isn't trimming-safe.")]
     public INpgsqlTypeMapper MapComposite(Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
     {
-        var openMethod = typeof(NpgsqlDataSourceBuilderOrig).GetMethod(nameof(MapComposite), new[] { typeof(string), typeof(INpgsqlNameTranslator) })!;
+        var openMethod = typeof(NpgsqlDataSourceBuilder).GetMethod(nameof(MapComposite), new[] { typeof(string), typeof(INpgsqlNameTranslator) })!;
         var method = openMethod.MakeGenericMethod(clrType);
         method.Invoke(this, new object?[] { pgName, nameTranslator });
 
@@ -320,7 +320,7 @@ public class NpgsqlDataSourceBuilderOrig : INpgsqlTypeMapper
     /// turn this off.
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilderOrig UsePhysicalConnectionInitializer(
+    public NpgsqlDataSourceBuilder UsePhysicalConnectionInitializer(
         Action<NpgsqlConnection>? connectionInitializer,
         Func<NpgsqlConnection, Task>? connectionInitializerAsync)
     {

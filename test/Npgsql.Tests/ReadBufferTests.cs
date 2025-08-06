@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace Npgsql.Tests;
 
 [NonParallelizable] // Parallel access to a single buffer
-public class ReadBufferTests
+class ReadBufferTests
 {
     [Test]
     public void Skip()

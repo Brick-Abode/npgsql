@@ -12,7 +12,7 @@ namespace Npgsql;
 /// <summary>
 /// Represents a transaction to be made in a PostgreSQL database. This class cannot be inherited.
 /// </summary>
-public class NpgsqlTransactionOrig : DbTransaction
+public sealed class NpgsqlTransaction : DbTransaction
 {
     #region Fields and Properties
 
@@ -29,12 +29,9 @@ public class NpgsqlTransactionOrig : DbTransaction
         }
     }
 
-    /// <summary>
-    /// Specifies the <see cref="NpgsqlConnection"/> object associated with the transaction.
-    /// Note that with ambient transactions, it's possible for a transaction to be pending after its connection
-    /// is already closed. So we capture the connector and perform everything directly on it.
-    /// </summary>
-    protected NpgsqlConnector _connector;
+    // Note that with ambient transactions, it's possible for a transaction to be pending after its connection
+    // is already closed. So we capture the connector and perform everything directly on it.
+    NpgsqlConnector _connector;
 
     /// <summary>
     /// Specifies the <see cref="NpgsqlConnection"/> object associated with the transaction.
@@ -63,33 +60,17 @@ public class NpgsqlTransactionOrig : DbTransaction
             return _isolationLevel;
         }
     }
+    IsolationLevel _isolationLevel;
 
-    /// <summary>
-    /// Specifies the isolation level for this transaction.
-    /// </summary>
-    protected IsolationLevel _isolationLevel;
+    readonly ILogger _transactionLogger;
 
-    /// <summary>
-    /// The ILogger field.
-    /// </summary>
-    protected readonly ILogger _transactionLogger;
-
-    /// <summary>
-    /// Specifies the default isolation level for transactions.
-    /// </summary>
-    protected const IsolationLevel DefaultIsolationLevel = IsolationLevel.ReadCommitted;
+    const IsolationLevel DefaultIsolationLevel = IsolationLevel.ReadCommitted;
 
     #endregion
 
     #region Initialization
 
-    internal NpgsqlTransactionOrig()
-    {
-        _connector = default!;
-        _transactionLogger = default!;
-    }
-
-    internal NpgsqlTransactionOrig(NpgsqlConnector connector)
+    internal NpgsqlTransaction(NpgsqlConnector connector)
     {
         _connector = connector;
         _transactionLogger = connector.TransactionLogger;
@@ -475,10 +456,7 @@ public class NpgsqlTransactionOrig : DbTransaction
             throw new ObjectDisposedException(typeof(NpgsqlTransaction).Name, _disposeReason);
     }
 
-    /// <summary>
-    /// The RequiresQuoting function.
-    /// </summary>
-    protected static bool RequiresQuoting(string identifier)
+    static bool RequiresQuoting(string identifier)
     {
         Debug.Assert(identifier.Length > 0);
 
@@ -516,7 +494,7 @@ public class NpgsqlTransactionOrig : DbTransaction
             else
                 _connector.Transaction = null;
 
-            _connector.UnboundTransaction = (NpgsqlTransaction)this;
+            _connector.UnboundTransaction = this;
             _connector = null!;
         }
     }
