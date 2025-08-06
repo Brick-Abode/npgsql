@@ -1,11 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
 using System.Threading.Tasks;
 using NpgsqlTypes;
 using NUnit.Framework;
-using NUnit.Framework.Internal;
 using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests.Types;
@@ -16,16 +14,18 @@ namespace Npgsql.Tests.Types;
 /// <summary>
 /// https://www.postgresql.org/docs/current/static/datatype-numeric.html
 /// </summary>
-public class NumericTypeTests : MultiplexingTestBase
+public class NumericTypeTests(MultiplexingMode multiplexingMode) : MultiplexingTestBase(multiplexingMode)
 {
     [Test]
     public async Task Int16()
     {
         await AssertType((short)8, "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16);
+        // Clr byte/sbyte maps to 'int2' as there is no byte type in PostgreSQL, byte[] maps to bytea however.
+        await AssertType((byte)8, "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16, isDefaultForReading: false, skipArrayCheck: true);
+        await AssertType((sbyte)8, "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16, isDefaultForReading: false);
 
         await AssertType(8,       "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16, isDefault: false);
         await AssertType(8L,      "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16, isDefault: false);
-        await AssertType((byte)8, "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16, isDefault: false);
         await AssertType(8F,      "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16, isDefault: false);
         await AssertType(8D,      "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16, isDefault: false);
         await AssertType(8M,      "8", "smallint", NpgsqlDbType.Smallint, DbType.Int16, isDefault: false);
@@ -108,6 +108,4 @@ public class NumericTypeTests : MultiplexingTestBase
     [TestCase(0L, long.MaxValue + 1D, "decimal")]
     public Task Read_overflow<T>(T _, double value, string pgTypeName)
         => AssertTypeUnsupportedRead<T, OverflowException>(value.ToString(CultureInfo.InvariantCulture), pgTypeName);
-
-    public NumericTypeTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
 }

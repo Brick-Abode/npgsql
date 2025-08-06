@@ -13,17 +13,17 @@ namespace Npgsql.Util;
 /// we need to make sure that an existing cancellation token source hasn't been cancelled,
 /// every time we start it (see https://github.com/dotnet/runtime/issues/4694).
 /// </remarks>
-sealed class ResettableCancellationTokenSource : IDisposable
+sealed class ResettableCancellationTokenSource(TimeSpan timeout) : IDisposable
 {
     bool isDisposed;
 
-    public TimeSpan Timeout { get; set; }
+    public TimeSpan Timeout { get; set; } = timeout;
 
     CancellationTokenSource _cts = new();
-    CancellationTokenRegistration _registration;
+    CancellationTokenRegistration? _registration;
 
     /// <summary>
-    /// Used, so we wouldn't concurently use the cts for the cancellation, while it's being disposed
+    /// Used, so we wouldn't concurrently use the cts for the cancellation, while it's being disposed
     /// </summary>
     readonly object lockObject = new();
 
@@ -31,9 +31,9 @@ sealed class ResettableCancellationTokenSource : IDisposable
     bool _isRunning;
 #endif
 
-    public ResettableCancellationTokenSource() => Timeout = InfiniteTimeSpan;
-
-    public ResettableCancellationTokenSource(TimeSpan timeout) => Timeout = timeout;
+    public ResettableCancellationTokenSource() : this(InfiniteTimeSpan)
+    {
+    }
 
     /// <summary>
     /// Set the timeout on the wrapped <see cref="CancellationTokenSource"/>
@@ -97,13 +97,11 @@ sealed class ResettableCancellationTokenSource : IDisposable
     /// in order make sure the next call to <see cref="Start"/> will not invalidate
     /// the cancellation token.
     /// </summary>
-    /// <param name="cancellationToken">
-    /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
-    /// </param>
     /// <returns>The <see cref="CancellationToken"/> from the wrapped <see cref="CancellationTokenSource"/></returns>
-    public CancellationToken Reset(CancellationToken cancellationToken = default)
+    public CancellationToken Reset()
     {
-        _registration.Dispose();
+        _registration?.Dispose();
+        _registration = null;
         lock (lockObject)
         {
             // if there was an attempt to cancel while the connector was breaking
@@ -124,8 +122,6 @@ sealed class ResettableCancellationTokenSource : IDisposable
                 _cts = new CancellationTokenSource();
             }
         }
-        if (cancellationToken.CanBeCanceled)
-            _registration = cancellationToken.Register(cts => ((CancellationTokenSource)cts!).Cancel(), _cts);
 #if DEBUG
         _isRunning = false;
 #endif
@@ -160,7 +156,8 @@ sealed class ResettableCancellationTokenSource : IDisposable
     /// </remarks>
     public void Stop()
     {
-        _registration.Dispose();
+        _registration?.Dispose();
+        _registration = null;
         lock (lockObject)
         {
             // if there was an attempt to cancel while the connector was breaking
@@ -224,7 +221,7 @@ sealed class ResettableCancellationTokenSource : IDisposable
 
         lock (lockObject)
         {
-            _registration.Dispose();
+            _registration?.Dispose();
             _cts.Dispose();
 
             isDisposed = true;

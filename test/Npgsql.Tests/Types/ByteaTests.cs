@@ -14,7 +14,7 @@ namespace Npgsql.Tests.Types;
 /// <summary>
 /// https://www.postgresql.org/docs/current/static/datatype-binary.html
 /// </summary>
-public class ByteaTests : MultiplexingTestBase
+public class ByteaTests(MultiplexingMode multiplexingMode) : MultiplexingTestBase(multiplexingMode)
 {
     [Test]
     [TestCase(new byte[] { 1, 2, 3, 4, 5 }, "\\x0102030405", TestName = "Bytea")]
@@ -34,47 +34,53 @@ public class ByteaTests : MultiplexingTestBase
         await Bytea(array, sqlLiteral);
     }
 
-#if !NETSTANDARD2_0
     [Test]
-    public Task Write_as_Memory()
-        => AssertTypeWrite(
-            new Memory<byte>(new byte[] { 1, 2, 3 }), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false);
+    public Task AsMemory()
+        => AssertType(
+            new Memory<byte>([1, 2, 3]), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false,
+            comparer: (left, right) => left.Span.SequenceEqual(right.Span));
 
     [Test]
-    public Task Read_as_Memory_not_supported()
-        => AssertTypeUnsupportedRead<Memory<byte>, NotSupportedException>("\\x010203", "bytea");
+    public Task AsReadOnlyMemory()
+        => AssertType(
+            new ReadOnlyMemory<byte>([1, 2, 3]), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false,
+            comparer: (left, right) => left.Span.SequenceEqual(right.Span));
 
     [Test]
-    public Task Write_as_ReadOnlyMemory()
-        => AssertTypeWrite(
-            new ReadOnlyMemory<byte>(new byte[] { 1, 2, 3 }), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false);
-
-    [Test]
-    public Task Read_as_ReadOnlyMemory_not_supported()
-        => AssertTypeUnsupportedRead<ReadOnlyMemory<byte>, NotSupportedException>("\\x010203", "bytea");
-#endif
-
-    [Test]
-    public Task Write_as_ArraySegment()
-        => AssertTypeWrite(
-            new ArraySegment<byte>(new byte[] { 1, 2, 3 }), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false);
-
-    [Test]
-    public Task Read_as_ArraySegment_not_supported()
-        => AssertTypeUnsupportedRead<ArraySegment<byte>, NotSupportedException>("\\x010203", "bytea");
+    public Task AsArraySegment()
+        => AssertType(
+            new ArraySegment<byte>([1, 2, 3]), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false);
 
     [Test]
     public Task Write_as_MemoryStream()
         => AssertTypeWrite(
-            () => new MemoryStream(new byte[] { 1, 2, 3 }), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false);
+            () => new MemoryStream([1, 2, 3]), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false);
 
     [Test]
     public Task Write_as_MemoryStream_truncated()
     {
         var msFactory = () =>
         {
-            var ms = new MemoryStream(new byte[] { 1, 2, 3, 4 });
+            var ms = new MemoryStream([1, 2, 3, 4]);
             ms.ReadByte();
+            return ms;
+        };
+
+        return AssertTypeWrite(
+            msFactory, "\\x020304", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false);
+    }
+
+    [Test]
+    public Task Write_as_MemoryStream_exposableArray()
+    {
+        var msFactory = () =>
+        {
+            var ms = new MemoryStream(20);
+            ms.WriteByte(1);
+            ms.WriteByte(2);
+            ms.WriteByte(3);
+            ms.WriteByte(4);
+            ms.Position = 1;
             return ms;
         };
 
@@ -101,7 +107,7 @@ public class ByteaTests : MultiplexingTestBase
         var fsList = new List<FileStream>();
         try
         {
-            await File.WriteAllBytesAsync(filePath, new byte[] { 1, 2, 3 });
+            await File.WriteAllBytesAsync(filePath, [1, 2, 3]);
 
             await AssertTypeWrite(
                 () => FileStreamFactory(filePath, fsList), "\\x010203", "bytea", NpgsqlDbType.Bytea, DbType.Binary, isDefault: false);
@@ -185,17 +191,19 @@ public class ByteaTests : MultiplexingTestBase
     {
         await using var conn = await OpenConnectionAsync();
         await using var cmd = new NpgsqlCommand("SELECT @p", conn);
-        byte[] data = { 1, 2, 3, 4, 5, 6 };
+        byte[] data = [1, 2, 3, 4, 5, 6];
         var p = new NpgsqlParameter("p", data) { Size = 4 };
         cmd.Parameters.Add(p);
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
+        Assert.That(p.Value, Is.EqualTo(new byte[] { 1, 2, 3, 4 }), "Truncated parameter value should be persisted on the parameter per DbParameter.Size docs");
 
         // NpgsqlParameter.Size needs to persist when value is changed
-        byte[] data2 = { 11, 12, 13, 14, 15, 16 };
+        byte[] data2 = [11, 12, 13, 14, 15, 16];
         p.Value = data2;
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(new byte[] { 11, 12, 13, 14 }));
 
         // NpgsqlParameter.Size larger than the value size should mean the value size, as well as 0 and -1
+        p.Value = data2;
         p.Size = data2.Length + 10;
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(data2));
         p.Size = 0;
@@ -207,18 +215,17 @@ public class ByteaTests : MultiplexingTestBase
     }
 
     [Test, Description("Tests that bytea stream values are truncated when the NpgsqlParameter's Size is set")]
-    [NonParallelizable] // The last check will break the connection, which can fail other unrelated queries in multiplexing
     public async Task Truncate_stream()
     {
         await using var conn = await OpenConnectionAsync();
         await using var cmd = new NpgsqlCommand("SELECT @p", conn);
-        byte[] data = { 1, 2, 3, 4, 5, 6 };
+        byte[] data = [1, 2, 3, 4, 5, 6];
         var p = new NpgsqlParameter("p", new MemoryStream(data)) { Size = 4 };
         cmd.Parameters.Add(p);
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
 
         // NpgsqlParameter.Size needs to persist when value is changed
-        byte[] data2 = { 11, 12, 13, 14, 15, 16 };
+        byte[] data2 = [11, 12, 13, 14, 15, 16];
         p.Value = new MemoryStream(data2);
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(new byte[] { 11, 12, 13, 14 }));
 
@@ -237,13 +244,9 @@ public class ByteaTests : MultiplexingTestBase
 
         Assert.That(() => p.Size = -2, Throws.Exception.TypeOf<ArgumentException>());
 
-        // NpgsqlParameter.Size larger than the value size should throw
-        p.Size = data2.Length + 10;
         p.Value = new MemoryStream(data2);
-        var ex = Assert.ThrowsAsync<NpgsqlException>(async () => await cmd.ExecuteScalarAsync())!;
-        Assert.That(ex.InnerException, Is.TypeOf<EndOfStreamException>());
-        if (!IsMultiplexing)
-            Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+        p.Size = data2.Length + 10;
+        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(data2));
     }
 
     [Test]
@@ -251,7 +254,7 @@ public class ByteaTests : MultiplexingTestBase
     {
         await using var conn = await OpenConnectionAsync();
         await using var cmd = new NpgsqlCommand("SELECT @p", conn);
-        byte[] data = { 1, 2, 3, 4, 5, 6 };
+        byte[] data = [1, 2, 3, 4, 5, 6];
         var p = new NpgsqlParameter("p", new NonSeekableStream(data)) { Size = 4 };
         cmd.Parameters.Add(p);
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
@@ -263,7 +266,7 @@ public class ByteaTests : MultiplexingTestBase
 
         p.Value = new NonSeekableStream(data);
         p.Size = 0;
-        Assert.ThrowsAsync<NpgsqlException>(async () => await cmd.ExecuteScalarAsync());
+        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(data));
         Assert.That(conn.State, Is.EqualTo(ConnectionState.Open));
     }
 
@@ -281,14 +284,8 @@ public class ByteaTests : MultiplexingTestBase
         Assert.AreEqual(inVal[1], retVal[1]);
     }
 
-    sealed class NonSeekableStream : MemoryStream
+    sealed class NonSeekableStream(byte[] data) : MemoryStream(data)
     {
         public override bool CanSeek => false;
-
-        public NonSeekableStream(byte[] data) : base(data)
-        {
-        }
     }
-
-    public ByteaTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
 }

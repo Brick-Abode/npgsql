@@ -19,11 +19,15 @@ public partial class CompositeHandlerTests
     {
         await using var dataSource = await OpenAndMapComposite(composite, schema, nameof(Read), out var name);
         await using var connection = await dataSource.OpenConnectionAsync();
-        await using var command = new NpgsqlCommand($"SELECT ROW({composite.GetValues()})::{name}", connection);
+
+        var literal = $"ROW({composite.GetValues()})::{name}";
+        var arrayLiteral = $"ARRAY[{literal}]::{name}[]";
+        await using var command = new NpgsqlCommand($"SELECT {literal}, {arrayLiteral}", connection);
         await using var reader = command.ExecuteReader();
 
         await reader.ReadAsync();
         assert(() => reader.GetFieldValue<T>(0), composite);
+        assert(() => reader.GetFieldValue<T[]>(1)[0], composite);
     }
 
     [Test]
@@ -62,7 +66,8 @@ public partial class CompositeHandlerTests
 
     [Test]
     public Task Read_type_with_private_property_throws() =>
-        Read(new TypeWithPrivateProperty(), (execute, expected) => Assert.Throws<InvalidOperationException>(() => execute()));
+        Read(new TypeWithPrivateProperty(), (execute, expected) =>
+            Assert.That(() => execute(), Throws.Exception.TypeOf<InvalidCastException>().With.Property("InnerException").TypeOf<InvalidOperationException>()));
 
     [Test]
     public Task Read_type_with_private_getter() =>
@@ -99,15 +104,18 @@ public partial class CompositeHandlerTests
 
     [Test]
     public Task Read_type_with_less_properties_than_attributes_throws() =>
-        Read(new TypeWithLessPropertiesThanAttributes(), (execute, expected) => Assert.Throws<InvalidOperationException>(() => execute()));
+        Read(new TypeWithLessPropertiesThanAttributes(), (execute, expected) =>
+            Assert.That(() => execute(), Throws.Exception.TypeOf<InvalidCastException>().With.Property("InnerException").TypeOf<InvalidOperationException>()));
 
     [Test]
     public Task Read_type_with_less_parameters_than_attributes_throws() =>
-        Read(new TypeWithLessParametersThanAttributes(TheAnswer), (execute, expected) => Assert.Throws<InvalidOperationException>(() => execute()));
+        Read(new TypeWithLessParametersThanAttributes(TheAnswer), (execute, expected) =>
+            Assert.That(() => execute(), Throws.Exception.TypeOf<InvalidCastException>().With.Property("InnerException").TypeOf<InvalidOperationException>()));
 
     [Test]
     public Task Read_type_with_more_parameters_than_attributes_throws() =>
-        Read(new TypeWithMoreParametersThanAttributes(TheAnswer, HelloSlonik), (execute, expected) => Assert.Throws<InvalidOperationException>(() => execute()));
+        Read(new TypeWithMoreParametersThanAttributes(TheAnswer, HelloSlonik), (execute, expected) =>
+            Assert.That(() => execute(), Throws.Exception.TypeOf<InvalidCastException>().With.Property("InnerException").TypeOf<InvalidOperationException>()));
 
     [Test]
     public Task Read_type_with_one_parameter() =>

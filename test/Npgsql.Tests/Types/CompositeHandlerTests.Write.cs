@@ -19,14 +19,28 @@ public partial class CompositeHandlerTests
     {
         await using var dataSource = await OpenAndMapComposite(composite, schema, nameof(Write), out var _);
         await using var connection = await dataSource.OpenConnectionAsync();
-        await using var command = new NpgsqlCommand("SELECT (@c).*", connection);
+        {
+            await using var command = new NpgsqlCommand("SELECT (@c).*", connection);
 
-        command.Parameters.AddWithValue("c", composite);
-        await using var reader = await command.ExecuteReaderAsync();
-        await reader.ReadAsync();
+            command.Parameters.AddWithValue("c", composite);
+            await using var reader = await command.ExecuteReaderAsync();
+            await reader.ReadAsync();
 
-        if (assert is not null)
-            assert(reader, composite);
+            if (assert is not null)
+                assert(reader, composite);
+        }
+
+        {
+            await using var command = new NpgsqlCommand("SELECT (@arrayc)[1].*", connection);
+
+            command.Parameters.AddWithValue("arrayc", new[] { composite });
+            await using var reader = await command.ExecuteReaderAsync();
+            await reader.ReadAsync();
+
+
+            if (assert is not null)
+                assert(reader, composite);
+        }
     }
 
     [Test]
@@ -63,7 +77,9 @@ public partial class CompositeHandlerTests
 
     [Test]
     public void Write_type_with_private_property_throws()
-        => Assert.ThrowsAsync<InvalidOperationException>(async () => await Write(new TypeWithPrivateProperty()));
+        => Assert.ThrowsAsync(
+            Is.TypeOf<InvalidCastException>().With.Property("InnerException").TypeOf<InvalidOperationException>(),
+            async () => await Write(new TypeWithPrivateProperty()));
 
     [Test]
     public void Write_type_with_private_getter_throws()
@@ -95,13 +111,19 @@ public partial class CompositeHandlerTests
 
     [Test]
     public void Write_type_with_less_properties_than_attributes_throws()
-        => Assert.ThrowsAsync<InvalidOperationException>(async () => await Write(new TypeWithLessPropertiesThanAttributes()));
+        => Assert.ThrowsAsync(
+            Is.TypeOf<InvalidCastException>().With.Property("InnerException").TypeOf<InvalidOperationException>(),
+            async () => await Write(new TypeWithLessPropertiesThanAttributes()));
 
     [Test]
     public void Write_type_with_less_parameters_than_attributes_throws()
-        => Assert.ThrowsAsync<InvalidOperationException>(async () => await Write(new TypeWithMoreParametersThanAttributes(TheAnswer, HelloSlonik)));
+        => Assert.ThrowsAsync(
+            Is.TypeOf<InvalidCastException>().With.Property("InnerException").TypeOf<InvalidOperationException>(),
+            async () => await Write(new TypeWithMoreParametersThanAttributes(TheAnswer, HelloSlonik)));
 
     [Test]
     public void Write_type_with_more_parameters_than_attributes_throws()
-        => Assert.ThrowsAsync<InvalidOperationException>(async () => await Write(new TypeWithLessParametersThanAttributes(TheAnswer)));
+        => Assert.ThrowsAsync(
+            Is.TypeOf<InvalidCastException>().With.Property("InnerException").TypeOf<InvalidOperationException>(),
+            async () => await Write(new TypeWithLessParametersThanAttributes(TheAnswer)));
 }

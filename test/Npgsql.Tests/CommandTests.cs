@@ -1,7 +1,6 @@
 using Npgsql.BackendMessages;
 using Npgsql.Internal;
 using Npgsql.Tests.Support;
-using Npgsql.TypeMapping;
 using NpgsqlTypes;
 using NUnit.Framework;
 using System;
@@ -11,12 +10,16 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Npgsql.Internal.Postgres;
 using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests;
 
-public class CommandTests : MultiplexingTestBase
+public class CommandTests(MultiplexingMode multiplexingMode) : MultiplexingTestBase(multiplexingMode)
 {
+    static uint Int4Oid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Int4).Value;
+    static uint TextOid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Text).Value;
+
     #region Legacy batching
 
     [Test]
@@ -134,6 +137,30 @@ public class CommandTests : MultiplexingTestBase
             .With.Property(nameof(PostgresException.SqlState)).EqualTo(PostgresErrorCodes.SyntaxError));
     }
 
+    [Test]
+    [NonParallelizable] // Disables sql rewriting
+    public async Task Positional_parameters_are_supported_when_EnableSqlParsing_is_disabled()
+    {
+        using var _ = DisableSqlRewriting();
+
+        using var conn = await OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand("SELECT $1", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = 8 });
+        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(8));
+    }
+
+    [Test]
+    [NonParallelizable] // Disables sql rewriting
+    public async Task Named_parameters_are_not_supported_when_EnableSqlParsing_is_disabled()
+    {
+        using var _ = DisableSqlRewriting();
+
+        using var conn = await OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand("SELECT @p", conn);
+        cmd.Parameters.Add(new NpgsqlParameter("p", 8));
+        Assert.That(async () => await cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<NotSupportedException>());
+    }
+
     #endregion
 
     #region Timeout
@@ -145,10 +172,9 @@ public class CommandTests : MultiplexingTestBase
         if (IsMultiplexing)
             return; // Multiplexing, Timeout
 
-        // Mono throws a socket exception with WouldBlock instead of TimedOut (see #1330)
-        var isMono = Type.GetType("Mono.Runtime") != null;
-        using var conn = await OpenConnectionAsync(ConnectionString + ";CommandTimeout=1");
-        using var cmd = CreateSleepCommand(conn, 10);
+        await using var dataSource = CreateDataSource(csb => csb.CommandTimeout = 1);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var cmd = CreateSleepCommand(conn, 10);
         Assert.That(() => cmd.ExecuteNonQuery(), Throws.Exception
             .TypeOf<NpgsqlException>()
             .With.InnerException.TypeOf<TimeoutException>()
@@ -163,8 +189,9 @@ public class CommandTests : MultiplexingTestBase
         if (IsMultiplexing)
             return; // Multiplexing, Timeout
 
-        using var conn = await OpenConnectionAsync(builder => builder.CommandTimeout = 1);
-        using var cmd = CreateSleepCommand(conn, 10);
+        await using var dataSource = CreateDataSource(csb => csb.CommandTimeout = 1);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var cmd = CreateSleepCommand(conn, 10);
         Assert.That(async () => await cmd.ExecuteNonQueryAsync(),
             Throws.Exception
                 .TypeOf<NpgsqlException>()
@@ -181,8 +208,8 @@ public class CommandTests : MultiplexingTestBase
 
         var builder = new NpgsqlConnectionStringBuilder(ConnectionString) { CommandTimeout = 1 };
         await using var postmasterMock = PgPostmasterMock.Start(builder.ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
         await postmasterMock.WaitForServerConnection();
 
         var processId = conn.ProcessID;
@@ -202,13 +229,9 @@ public class CommandTests : MultiplexingTestBase
     {
         Assert.That(NpgsqlConnector.MinimumInternalCommandTimeout, Is.Not.EqualTo(NpgsqlCommand.DefaultTimeout));
         var timeout = NpgsqlConnector.MinimumInternalCommandTimeout;
-        var connString = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            CommandTimeout = timeout
-        }.ToString();
-        using var conn = new NpgsqlConnection(connString);
-        var command = new NpgsqlCommand("SELECT 1", conn);
-        conn.Open();
+        await using var dataSource = CreateDataSource(csb => csb.CommandTimeout = timeout);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand("SELECT 1", conn);
         Assert.That(command.CommandTimeout, Is.EqualTo(timeout));
         command.CommandTimeout = 10;
         await command.ExecuteScalarAsync();
@@ -218,29 +241,25 @@ public class CommandTests : MultiplexingTestBase
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/395")]
     public async Task Timeout_switch_connection()
     {
-        using (var conn = new NpgsqlConnection(ConnectionString))
-        {
-            if (conn.CommandTimeout >= 100 && conn.CommandTimeout < 105)
-                TestUtil.IgnoreExceptOnBuildServer("Bad default command timeout");
-        }
+        var csb = new NpgsqlConnectionStringBuilder(ConnectionString);
+        if (csb.CommandTimeout is >= 100 and < 105)
+            IgnoreExceptOnBuildServer("Bad default command timeout");
 
-        using (var c1 = await OpenConnectionAsync(ConnectionString + ";CommandTimeout=100"))
+        await using var dataSource1 = CreateDataSource(ConnectionString + ";CommandTimeout=100");
+        await using var c1 = dataSource1.CreateConnection();
+        await using var cmd = c1.CreateCommand();
+        Assert.That(cmd.CommandTimeout, Is.EqualTo(100));
+        await using var dataSource2 = CreateDataSource(ConnectionString + ";CommandTimeout=101");
+        await using (var c2 = dataSource2.CreateConnection())
         {
-            using (var cmd = c1.CreateCommand())
-            {
-                Assert.That(cmd.CommandTimeout, Is.EqualTo(100));
-                using (var c2 = new NpgsqlConnection(ConnectionString + ";CommandTimeout=101"))
-                {
-                    cmd.Connection = c2;
-                    Assert.That(cmd.CommandTimeout, Is.EqualTo(101));
-                }
-                cmd.CommandTimeout = 102;
-                using (var c2 = new NpgsqlConnection(ConnectionString + ";CommandTimeout=101"))
-                {
-                    cmd.Connection = c2;
-                    Assert.That(cmd.CommandTimeout, Is.EqualTo(102));
-                }
-            }
+            cmd.Connection = c2;
+            Assert.That(cmd.CommandTimeout, Is.EqualTo(101));
+        }
+        cmd.CommandTimeout = 102;
+        await using (var c2 = dataSource2.CreateConnection())
+        {
+            cmd.Connection = c2;
+            Assert.That(cmd.CommandTimeout, Is.EqualTo(102));
         }
     }
 
@@ -252,8 +271,8 @@ public class CommandTests : MultiplexingTestBase
 
         var builder = new NpgsqlConnectionStringBuilder(ConnectionString) { CommandTimeout = 1 };
         await using var postmasterMock = PgPostmasterMock.Start(builder.ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
         await postmasterMock.WaitForServerConnection();
 
         var processId = conn.ProcessID;
@@ -285,8 +304,8 @@ public class CommandTests : MultiplexingTestBase
         if (IsMultiplexing)
             return;
 
-        using var conn = await OpenConnectionAsync();
-        using var cmd = CreateSleepCommand(conn, 5);
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = CreateSleepCommand(conn, 5);
 
         var queryTask = Task.Run(() => cmd.ExecuteNonQuery());
         // We have to be sure the command's state is InProgress, otherwise the cancellation request will never be sent
@@ -306,7 +325,7 @@ public class CommandTests : MultiplexingTestBase
             return; // Multiplexing, cancellation
 
         await using var conn = await OpenConnectionAsync();
-        using var cmd = conn.CreateCommand();
+        await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT 1";
 
         var t = cmd.ExecuteScalarAsync(new(canceled: true));
@@ -325,7 +344,7 @@ public class CommandTests : MultiplexingTestBase
             return; // Multiplexing, cancellation
 
         await using var conn = await OpenConnectionAsync();
-        using var cmd = CreateSleepCommand(conn);
+        await using var cmd = CreateSleepCommand(conn);
         using var cancellationSource = new CancellationTokenSource();
         var t = cmd.ExecuteNonQueryAsync(cancellationSource.Token);
         cancellationSource.Cancel();
@@ -339,6 +358,48 @@ public class CommandTests : MultiplexingTestBase
         Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
     }
 
+    [Test, Description("Cancels an async query with the cancellation token and prepended query, with successful PG cancellation")]
+    [IssueLink("https://github.com/npgsql/npgsql/issues/5191")]
+    public async Task Cancel_async_soft_with_prepended_query()
+    {
+        if (IsMultiplexing)
+            return; // Multiplexing, cancellation
+
+        await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        var server = await postmasterMock.WaitForServerConnection();
+
+        var processId = conn.ProcessID;
+
+        await using var tx = await conn.BeginTransactionAsync();
+        await using var cmd = CreateSleepCommand(conn);
+        using var cancellationSource = new CancellationTokenSource();
+        var t = cmd.ExecuteNonQueryAsync(cancellationSource.Token);
+
+        await server.ExpectSimpleQuery("BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED");
+        cancellationSource.Cancel();
+        await server
+            .WriteCommandComplete()
+            .WriteReadyForQuery(TransactionStatus.InTransactionBlock)
+            .FlushAsync();
+
+         Assert.That((await postmasterMock.WaitForCancellationRequest()).ProcessId,
+            Is.EqualTo(processId));
+
+         await server
+             .WriteErrorResponse(PostgresErrorCodes.QueryCanceled)
+             .WriteReadyForQuery()
+             .FlushAsync();
+
+        var exception = Assert.ThrowsAsync<OperationCanceledException>(async () => await t)!;
+        Assert.That(exception.InnerException,
+            Is.TypeOf<PostgresException>().With.Property(nameof(PostgresException.SqlState)).EqualTo(PostgresErrorCodes.QueryCanceled));
+        Assert.That(exception.CancellationToken, Is.EqualTo(cancellationSource.Token));
+
+        Assert.That(conn.FullState, Is.EqualTo(ConnectionState.Open));
+    }
+
     [Test, Description("Cancels an async query with the cancellation token, with unsuccessful PG cancellation (socket break)")]
     public async Task Cancel_async_hard()
     {
@@ -346,8 +407,8 @@ public class CommandTests : MultiplexingTestBase
             return; // Multiplexing, cancellation
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
         await postmasterMock.WaitForServerConnection();
 
         var processId = conn.ProcessID;
@@ -378,14 +439,14 @@ public class CommandTests : MultiplexingTestBase
             Pooling = false
         };
         await using var postmasterMock = PgPostmasterMock.Start(csb.ToString(), completeCancellationImmediately: false);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
         var serverMock = await postmasterMock.WaitForServerConnection();
 
         var processId = conn.ProcessID;
 
         using var cancellationSource = new CancellationTokenSource();
-        using var cmd = new NpgsqlCommand("SELECT 1", conn)
+        await using var cmd = new NpgsqlCommand("SELECT 1", conn)
         {
             CommandTimeout = 4
         };
@@ -408,7 +469,7 @@ public class CommandTests : MultiplexingTestBase
             await serverMock
                 .WriteParseComplete()
                 .WriteBindComplete()
-                .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+                .WriteRowDescription(new FieldDescription(Int4Oid))
                 .WriteDataRow(BitConverter.GetBytes(BinaryPrimitives.ReverseEndianness(1)))
                 .WriteCommandComplete()
                 .WriteReadyForQuery()
@@ -427,9 +488,9 @@ public class CommandTests : MultiplexingTestBase
     [Explicit("Timing-sensitive")]
     public async Task Cancel_cross_command()
     {
-        using var conn = await OpenConnectionAsync();
-        using var cmd1 = CreateSleepCommand(conn, 2);
-        using var cmd2 = new NpgsqlCommand("SELECT 1", conn);
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd1 = CreateSleepCommand(conn, 2);
+        await using var cmd2 = new NpgsqlCommand("SELECT 1", conn);
         var cancelTask = Task.Factory.StartNew(() =>
         {
             Thread.Sleep(300);
@@ -531,98 +592,122 @@ public class CommandTests : MultiplexingTestBase
         if (prepare == PrepareOrNot.Prepared && IsMultiplexing)
             return;
 
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT 1, 2 UNION SELECT 3, 4", conn);
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new NpgsqlCommand("SELECT 1, 2 UNION SELECT 3, 4", conn);
         if (prepare == PrepareOrNot.Prepared)
             cmd.Prepare();
 
-        using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow);
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow);
         Assert.That(() => reader.GetInt32(0), Throws.Exception.TypeOf<InvalidOperationException>());
         Assert.That(reader.Read(), Is.True);
         Assert.That(reader.GetInt32(0), Is.EqualTo(1));
         Assert.That(reader.Read(), Is.False);
     }
 
-    #region Parameters
-
     [Test]
-    public async Task Positional_parameter()
+    public async Task CommandText_not_set()
     {
         await using var conn = await OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT $1", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = 8 });
-        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(8));
+        await using (var cmd = new NpgsqlCommand())
+        {
+            cmd.Connection = conn;
+            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
+            cmd.CommandText = null;
+            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
+            cmd.CommandText = "";
+        }
+
+        await using (var cmd = conn.CreateCommand())
+            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
     }
 
     [Test]
-    public async Task Positional_parameters_are_not_supported_with_legacy_batching()
+    public async Task ExecuteScalar()
     {
         await using var conn = await OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT $1; SELECT $1", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = 8 });
-        Assert.That(async () => await cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<PostgresException>()
-            .With.Property(nameof(PostgresException.SqlState)).EqualTo(PostgresErrorCodes.SyntaxError));
+        var table = await CreateTempTable(conn, "name TEXT");
+        await using var command = new NpgsqlCommand($"SELECT name FROM {table}", conn);
+        Assert.That(command.ExecuteScalarAsync, Is.Null);
+
+        await conn.ExecuteNonQueryAsync($"INSERT INTO {table} (name) VALUES (NULL)");
+        Assert.That(command.ExecuteScalarAsync, Is.EqualTo(DBNull.Value));
+
+        await conn.ExecuteNonQueryAsync($"TRUNCATE {table}");
+        for (var i = 0; i < 2; i++)
+            await conn.ExecuteNonQueryAsync($"INSERT INTO {table} (name) VALUES ('X')");
+        Assert.That(command.ExecuteScalarAsync, Is.EqualTo("X"));
     }
 
     [Test]
-    [NonParallelizable] // Disables sql rewriting
-    public async Task Positional_parameters_are_supported_when_EnableSqlParsing_is_disabled()
-    {
-        using var _ = DisableSqlRewriting();
-
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT $1", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = 8 });
-        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(8));
-    }
-
-    [Test]
-    [NonParallelizable] // Disables sql rewriting
-    public async Task Named_parameters_are_not_supported_when_EnableSqlParsing_is_disabled()
-    {
-        using var _ = DisableSqlRewriting();
-
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT @p", conn);
-        cmd.Parameters.Add(new NpgsqlParameter("p", 8));
-        Assert.That(async () => await cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<NotSupportedException>());
-    }
-
-    [Test, Description("Makes sure writing an unset parameter isn't allowed")]
-    public async Task Parameter_without_Value()
-    {
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT @p", conn);
-        cmd.Parameters.Add(new NpgsqlParameter("@p", NpgsqlDbType.Integer));
-        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<InvalidCastException>());
-    }
-
-    [Test]
-    public async Task Unreferenced_named_parameter_works()
+    public async Task ExecuteNonQuery()
     {
         await using var conn = await OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT 1", conn);
-        cmd.Parameters.AddWithValue("not_used", 8);
-        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(1));
+        await using var cmd = new NpgsqlCommand { Connection = conn };
+        var table = await CreateTempTable(conn, "name TEXT");
+
+        cmd.CommandText = $"INSERT INTO {table} (name) VALUES ('John')";
+        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(1));
+
+        cmd.CommandText = $"INSERT INTO {table} (name) VALUES ('John'); INSERT INTO {table} (name) VALUES ('John')";
+        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(2));
+
+        cmd.CommandText = $"INSERT INTO {table} (name) VALUES ('{new string('x', conn.Settings.WriteBufferSize)}')";
+        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(1));
+    }
+
+    [Test, Description("Makes sure a command is unusable after it is disposed")]
+    public async Task Dispose()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var cmd = new NpgsqlCommand("SELECT 1", conn);
+        cmd.Dispose();
+        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
+        Assert.That(() => cmd.ExecuteNonQueryAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
+        Assert.That(() => cmd.ExecuteReaderAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
+        Assert.That(() => cmd.PrepareAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
+    }
+
+    [Test, Description("Disposing a command with an open reader does not close the reader. This is the SqlClient behavior.")]
+    public async Task Command_Dispose_does_not_close_reader()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var cmd = new NpgsqlCommand("SELECT 1, 2", conn);
+        await cmd.ExecuteReaderAsync();
+        cmd.Dispose();
+        cmd = new NpgsqlCommand("SELECT 3", conn);
+        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<NpgsqlOperationInProgressException>());
     }
 
     [Test]
-    public async Task Unreferenced_positional_parameter_works()
+    public async Task Non_standards_conforming_strings()
     {
-        await using var conn = await OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT 1", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { Value = 8 });
-        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(1));
+        await using var dataSource = CreateDataSource();
+        await using var conn = await dataSource.OpenConnectionAsync();
+
+        if (IsMultiplexing)
+        {
+            Assert.That(async () => await conn.ExecuteNonQueryAsync("set standard_conforming_strings=off"),
+                Throws.Exception.TypeOf<NotSupportedException>());
+        }
+        else
+        {
+            await conn.ExecuteNonQueryAsync("set standard_conforming_strings=off");
+            Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
+            await conn.ExecuteNonQueryAsync("set standard_conforming_strings=on");
+        }
     }
 
     [Test]
-    public async Task Mixing_positional_and_named_parameters_is_not_supported()
+    public async Task Parameter_and_operator_unclear()
     {
         await using var conn = await OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT $1, @p", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { Value = 8 });
-        cmd.Parameters.Add(new NpgsqlParameter { ParameterName = "p", Value = 9 });
-        Assert.That(() => cmd.ExecuteNonQueryAsync(), Throws.Exception.TypeOf<NotSupportedException>());
+        //Without parenthesis the meaning of [, . and potentially other characters is
+        //a syntax error. See comment in NpgsqlCommand.GetClearCommandText() on "usually-redundant parenthesis".
+        await using var command = new NpgsqlCommand("select :arr[2]", conn);
+        command.Parameters.AddWithValue(":arr", new int[] {5, 4, 3, 2, 1});
+        await using var rdr = await command.ExecuteReaderAsync();
+        rdr.Read();
+        Assert.AreEqual(rdr.GetInt32(0), 4);
     }
 
     [Test]
@@ -651,201 +736,11 @@ public class CommandTests : MultiplexingTestBase
     }
 
     [Test]
-    [IssueLink("https://github.com/npgsql/npgsql/issues/4171")]
-    public async Task Reuse_command_with_different_parameter_placeholder_types()
-    {
-        await using var conn = await OpenConnectionAsync();
-        await using var cmd = conn.CreateCommand();
-
-        cmd.CommandText = "SELECT @p1";
-        cmd.Parameters.AddWithValue("@p1", 8);
-        _ = await cmd.ExecuteScalarAsync();
-
-        cmd.CommandText = "SELECT $1";
-        cmd.Parameters[0].ParameterName = null;
-        _ = await cmd.ExecuteScalarAsync();
-    }
-
-    [Test]
-    public async Task Positional_output_parameters_are_not_supported()
-    {
-        await using var conn = await OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT $1", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { Value = 8, Direction = ParameterDirection.InputOutput });
-        Assert.That(() => cmd.ExecuteNonQueryAsync(), Throws.Exception.TypeOf<NotSupportedException>());
-    }
-
-    [Test]
-    public void Parameters_get_name()
-    {
-        var command = new NpgsqlCommand();
-
-        // Add parameters.
-        command.Parameters.Add(new NpgsqlParameter(":Parameter1", DbType.Boolean));
-        command.Parameters.Add(new NpgsqlParameter(":Parameter2", DbType.Int32));
-        command.Parameters.Add(new NpgsqlParameter(":Parameter3", DbType.DateTime));
-        command.Parameters.Add(new NpgsqlParameter("Parameter4", DbType.DateTime));
-
-        var idbPrmtr = command.Parameters["Parameter1"];
-        Assert.IsNotNull(idbPrmtr);
-        command.Parameters[0].Value = 1;
-
-        // Get by indexers.
-
-        Assert.AreEqual(":Parameter1", command.Parameters["Parameter1"].ParameterName);
-        Assert.AreEqual(":Parameter2", command.Parameters["Parameter2"].ParameterName);
-        Assert.AreEqual(":Parameter3", command.Parameters["Parameter3"].ParameterName);
-        Assert.AreEqual("Parameter4", command.Parameters["Parameter4"].ParameterName); //Should this work?
-
-        Assert.AreEqual(":Parameter1", command.Parameters[0].ParameterName);
-        Assert.AreEqual(":Parameter2", command.Parameters[1].ParameterName);
-        Assert.AreEqual(":Parameter3", command.Parameters[2].ParameterName);
-        Assert.AreEqual("Parameter4", command.Parameters[3].ParameterName);
-    }
-
-    [Test]
-    public async Task Same_param_multiple_times()
-    {
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT @p1, @p1", conn);
-        cmd.Parameters.AddWithValue("@p1", 8);
-        using var reader = await cmd.ExecuteReaderAsync();
-        reader.Read();
-        Assert.That(reader[0], Is.EqualTo(8));
-        Assert.That(reader[1], Is.EqualTo(8));
-    }
-
-    [Test]
-    public async Task Generic_parameter()
-    {
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT @p1, @p2, @p3, @p4", conn);
-        cmd.Parameters.Add(new NpgsqlParameter<int>("p1", 8));
-        cmd.Parameters.Add(new NpgsqlParameter<short>("p2", 8) { NpgsqlDbType = NpgsqlDbType.Integer });
-        cmd.Parameters.Add(new NpgsqlParameter<string>("p3", "hello"));
-        cmd.Parameters.Add(new NpgsqlParameter<char[]>("p4", new[] { 'f', 'o', 'o' }));
-        using var reader = await cmd.ExecuteReaderAsync();
-        reader.Read();
-        Assert.That(reader.GetInt32(0), Is.EqualTo(8));
-        Assert.That(reader.GetInt32(1), Is.EqualTo(8));
-        Assert.That(reader.GetString(2), Is.EqualTo("hello"));
-        Assert.That(reader.GetString(3), Is.EqualTo("foo"));
-    }
-
-    #endregion Parameters
-
-    [Test]
-    public async Task CommandText_not_set()
-    {
-        using var conn = await OpenConnectionAsync();
-        using (var cmd = new NpgsqlCommand())
-        {
-            cmd.Connection = conn;
-            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
-            cmd.CommandText = null;
-            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
-            cmd.CommandText = "";
-        }
-
-        using (var cmd = conn.CreateCommand())
-            Assert.That(cmd.ExecuteNonQueryAsync, Throws.Exception.TypeOf<InvalidOperationException>());
-    }
-
-    [Test]
-    public async Task ExecuteScalar()
-    {
-        using var conn = await OpenConnectionAsync();
-        var table = await CreateTempTable(conn, "name TEXT");
-        using var command = new NpgsqlCommand($"SELECT name FROM {table}", conn);
-        Assert.That(command.ExecuteScalarAsync, Is.Null);
-
-        await conn.ExecuteNonQueryAsync($"INSERT INTO {table} (name) VALUES (NULL)");
-        Assert.That(command.ExecuteScalarAsync, Is.EqualTo(DBNull.Value));
-
-        await conn.ExecuteNonQueryAsync($"TRUNCATE {table}");
-        for (var i = 0; i < 2; i++)
-            await conn.ExecuteNonQueryAsync($"INSERT INTO {table} (name) VALUES ('X')");
-        Assert.That(command.ExecuteScalarAsync, Is.EqualTo("X"));
-    }
-
-    [Test]
-    public async Task ExecuteNonQuery()
-    {
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand { Connection = conn };
-        var table = await CreateTempTable(conn, "name TEXT");
-
-        cmd.CommandText = $"INSERT INTO {table} (name) VALUES ('John')";
-        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(1));
-
-        cmd.CommandText = $"INSERT INTO {table} (name) VALUES ('John'); INSERT INTO {table} (name) VALUES ('John')";
-        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(2));
-
-        cmd.CommandText = $"INSERT INTO {table} (name) VALUES ('{new string('x', conn.Settings.WriteBufferSize)}')";
-        Assert.That(cmd.ExecuteNonQueryAsync, Is.EqualTo(1));
-    }
-
-    [Test, Description("Makes sure a command is unusable after it is disposed")]
-    public async Task Dispose()
-    {
-        using var conn = await OpenConnectionAsync();
-        var cmd = new NpgsqlCommand("SELECT 1", conn);
-        cmd.Dispose();
-        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
-        Assert.That(() => cmd.ExecuteNonQueryAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
-        Assert.That(() => cmd.ExecuteReaderAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
-        Assert.That(() => cmd.PrepareAsync(), Throws.Exception.TypeOf<ObjectDisposedException>());
-    }
-
-    [Test, Description("Disposing a command with an open reader does not close the reader. This is the SqlClient behavior.")]
-    public async Task Command_Dispose_does_not_close_reader()
-    {
-        using var conn = await OpenConnectionAsync();
-        var cmd = new NpgsqlCommand("SELECT 1, 2", conn);
-        await cmd.ExecuteReaderAsync();
-        cmd.Dispose();
-        cmd = new NpgsqlCommand("SELECT 3", conn);
-        Assert.That(() => cmd.ExecuteScalarAsync(), Throws.Exception.TypeOf<NpgsqlOperationInProgressException>());
-    }
-
-    [Test]
-    public async Task Non_standards_conforming_strings()
-    {
-        using var _ = CreateTempPool(ConnectionString, out var connString);
-        await using var conn = await OpenConnectionAsync(connString);
-
-        if (IsMultiplexing)
-        {
-            Assert.That(() => conn.ExecuteNonQueryAsync("set standard_conforming_strings=off"),
-                Throws.Exception.TypeOf<NotSupportedException>());
-        }
-        else
-        {
-            await conn.ExecuteNonQueryAsync("set standard_conforming_strings=off");
-            Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
-            await conn.ExecuteNonQueryAsync("set standard_conforming_strings=on");
-        }
-    }
-
-    [Test]
-    public async Task Parameter_and_operator_unclear()
-    {
-        using var conn = await OpenConnectionAsync();
-        //Without parenthesis the meaning of [, . and potentially other characters is
-        //a syntax error. See comment in NpgsqlCommand.GetClearCommandText() on "usually-redundant parenthesis".
-        using var command = new NpgsqlCommand("select :arr[2]", conn);
-        command.Parameters.AddWithValue(":arr", new int[] {5, 4, 3, 2, 1});
-        using var rdr = await command.ExecuteReaderAsync();
-        rdr.Read();
-        Assert.AreEqual(rdr.GetInt32(0), 4);
-    }
-
-    [Test]
     [TestCase(CommandBehavior.Default)]
     [TestCase(CommandBehavior.SequentialAccess)]
     public async Task Statement_mapped_output_parameters(CommandBehavior behavior)
     {
-        using var conn = await OpenConnectionAsync();
+        await using var conn = await OpenConnectionAsync();
         var command = new NpgsqlCommand("select 3, 4 as param1, 5 as param2, 6;", conn);
 
         var p = new NpgsqlParameter("param2", NpgsqlDbType.Integer);
@@ -863,7 +758,7 @@ public class CommandTests : MultiplexingTestBase
         p.Value = -1;
         command.Parameters.Add(p);
 
-        using var reader = await command.ExecuteReaderAsync(behavior);
+        await using var reader = await command.ExecuteReaderAsync(behavior);
 
         Assert.AreEqual(4, command.Parameters["param1"].Value);
         Assert.AreEqual(5, command.Parameters["param2"].Value);
@@ -943,48 +838,13 @@ $$ LANGUAGE plpgsql;";
         Assert.That(rdr["name"], Is.EqualTo("foo"));
     }
 
-    [Test]
-    [TestCase(CommandBehavior.Default)]
-    [TestCase(CommandBehavior.SequentialAccess)]
-    public async Task Input_and_output_parameters(CommandBehavior behavior)
-    {
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT @c-1 AS c, @a+2 AS b", conn);
-        cmd.Parameters.Add(new NpgsqlParameter("a", 3));
-        var b = new NpgsqlParameter { ParameterName = "b", Direction = ParameterDirection.Output };
-        cmd.Parameters.Add(b);
-        var c = new NpgsqlParameter { ParameterName = "c", Direction = ParameterDirection.InputOutput, Value = 4 };
-        cmd.Parameters.Add(c);
-        using (await cmd.ExecuteReaderAsync(behavior))
-        {
-            Assert.AreEqual(5, b.Value);
-            Assert.AreEqual(3, c.Value);
-        }
-    }
-
-    [Test]
-    public async Task Send_NpgsqlDbType_Unknown([Values(PrepareOrNot.NotPrepared, PrepareOrNot.Prepared)] PrepareOrNot prepare)
-    {
-        if (prepare == PrepareOrNot.Prepared && IsMultiplexing)
-            return;
-
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT @p::TIMESTAMP", conn);
-        cmd.CommandText = "SELECT @p::TIMESTAMP";
-        cmd.Parameters.Add(new NpgsqlParameter("p", NpgsqlDbType.Unknown) { Value = "2008-1-1" });
-        if (prepare == PrepareOrNot.Prepared)
-            cmd.Prepare();
-        using var reader = await cmd.ExecuteReaderAsync();
-        reader.Read();
-        Assert.That(reader.GetValue(0), Is.EqualTo(new DateTime(2008, 1, 1)));
-    }
 
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/503")]
     public async Task Invalid_UTF8()
     {
         const string badString = "SELECT 'abc\uD801\uD802d'";
-        using var _ = CreateTempPool(ConnectionString, out var connString);
-        using var conn = await OpenConnectionAsync(connString);
+        await using var dataSource = CreateDataSource();
+        using var conn = await dataSource.OpenConnectionAsync();
         Assert.That(() => conn.ExecuteScalarAsync(badString), Throws.Exception.TypeOf<EncoderFallbackException>());
     }
 
@@ -1004,6 +864,205 @@ $$ LANGUAGE plpgsql;";
         if (prepare == PrepareOrNot.Prepared)
             cmd.Prepare();
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(1));
+    }
+
+    // The asserts we're testing are debug only.
+    [Test]
+    public async Task Use_after_reload_types_invalidates_cached_infos()
+    {
+        if (IsMultiplexing)
+            return;
+
+        using var conn1 = await OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand("SELECT 1", conn1);
+        cmd.Prepare();
+        using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            await reader.ReadAsync();
+            Assert.DoesNotThrow(() => reader.GetInt32(0));
+        }
+
+        await conn1.ReloadTypesAsync();
+
+        using (var reader = await cmd.ExecuteReaderAsync())
+        {
+            await reader.ReadAsync();
+            Assert.DoesNotThrow(() => reader.GetInt32(0));
+        }
+    }
+
+    [Test]
+    public async Task Parameter_overflow_message_length_throws()
+    {
+        // Create a separate dataSource because of Multiplexing (otherwise we can break unrelated queries)
+        await using var dataSource = CreateDataSource();
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var cmd = new NpgsqlCommand("SELECT @a, @b, @c, @d, @e, @f, @g, @h", conn);
+
+        var largeParam = new string('A', 1 << 29);
+        cmd.Parameters.AddWithValue("a", largeParam);
+        cmd.Parameters.AddWithValue("b", largeParam);
+        cmd.Parameters.AddWithValue("c", largeParam);
+        cmd.Parameters.AddWithValue("d", largeParam);
+        cmd.Parameters.AddWithValue("e", largeParam);
+        cmd.Parameters.AddWithValue("f", largeParam);
+        cmd.Parameters.AddWithValue("g", largeParam);
+        cmd.Parameters.AddWithValue("h", largeParam);
+
+        Assert.ThrowsAsync<OverflowException>(() => cmd.ExecuteReaderAsync());
+    }
+
+    [Test]
+    public async Task Composite_overflow_message_length_throws()
+    {
+        await using var adminConnection = await OpenConnectionAsync();
+        var type = await GetTempTypeName(adminConnection);
+
+        await adminConnection.ExecuteNonQueryAsync(
+            $"CREATE TYPE {type} AS (a text, b text, c text, d text, e text, f text, g text, h text)");
+
+        var dataSourceBuilder = CreateDataSourceBuilder();
+        dataSourceBuilder.MapComposite<BigComposite>(type);
+        await using var dataSource = dataSourceBuilder.Build();
+        await using var connection = await dataSource.OpenConnectionAsync();
+
+        var largeString = new string('A', 1 << 29);
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT @a";
+        cmd.Parameters.AddWithValue("a", new BigComposite
+        {
+            A = largeString,
+            B = largeString,
+            C = largeString,
+            D = largeString,
+            E = largeString,
+            F = largeString,
+            G = largeString,
+            H = largeString
+        });
+
+        Assert.ThrowsAsync<OverflowException>(async () => await cmd.ExecuteNonQueryAsync());
+    }
+
+    record BigComposite
+    {
+        public string A { get; set; } = null!;
+        public string B { get; set; } = null!;
+        public string C { get; set; } = null!;
+        public string D { get; set; } = null!;
+        public string E { get; set; } = null!;
+        public string F { get; set; } = null!;
+        public string G { get; set; } = null!;
+        public string H { get; set; } = null!;
+    }
+
+    [Test]
+    public async Task Array_overflow_message_length_throws()
+    {
+        // Create a separate dataSource because of Multiplexing (otherwise we can break unrelated queries)
+        await using var dataSource = CreateDataSource();
+        await using var conn = await dataSource.OpenConnectionAsync();
+
+        var largeString = new string('A', 1 << 29);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT @a";
+        var array = new[]
+        {
+            largeString,
+            largeString,
+            largeString,
+            largeString,
+            largeString,
+            largeString,
+            largeString,
+            largeString
+        };
+        cmd.Parameters.AddWithValue("a", array);
+
+        Assert.ThrowsAsync<OverflowException>(async () => await cmd.ExecuteNonQueryAsync());
+    }
+
+    [Test]
+    public async Task Range_overflow_message_length_throws()
+    {
+        await using var adminConnection = await OpenConnectionAsync();
+        var type = await GetTempTypeName(adminConnection);
+        var rangeType = await GetTempTypeName(adminConnection);
+
+        await adminConnection.ExecuteNonQueryAsync(
+            $"CREATE TYPE {type} AS (a text, b text, c text, d text, e text, f text, g text, h text);CREATE TYPE {rangeType} AS RANGE(subtype={type})");
+
+        var dataSourceBuilder = CreateDataSourceBuilder();
+        dataSourceBuilder.MapComposite<BigComposite>(type);
+        dataSourceBuilder.EnableUnmappedTypes();
+        await using var dataSource = dataSourceBuilder.Build();
+        await using var connection = await dataSource.OpenConnectionAsync();
+
+        var largeString = new string('A', (1 << 28) + 2000000);
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT @a";
+        var composite = new BigComposite
+        {
+            A = largeString,
+            B = largeString,
+            C = largeString,
+            D = largeString
+        };
+        var range = new NpgsqlRange<BigComposite>(composite, composite);
+        cmd.Parameters.Add(new NpgsqlParameter
+        {
+            Value = range,
+            ParameterName = "a",
+            DataTypeName = rangeType
+        });
+
+        Assert.ThrowsAsync<OverflowException>(async () => await cmd.ExecuteNonQueryAsync());
+    }
+
+    [Test]
+    public async Task Multirange_overflow_message_length_throws()
+    {
+        await using var adminConnection = await OpenConnectionAsync();
+        MinimumPgVersion(adminConnection, "14.0", "Multirange types were introduced in PostgreSQL 14");
+        var type = await GetTempTypeName(adminConnection);
+        var rangeType = await GetTempTypeName(adminConnection);
+
+        await adminConnection.ExecuteNonQueryAsync(
+            $"CREATE TYPE {type} AS (a text, b text, c text, d text, e text, f text, g text, h text);CREATE TYPE {rangeType} AS RANGE(subtype={type})");
+
+        var dataSourceBuilder = CreateDataSourceBuilder();
+        dataSourceBuilder.MapComposite<BigComposite>(type);
+        dataSourceBuilder.EnableUnmappedTypes();
+        await using var dataSource = dataSourceBuilder.Build();
+        await using var connection = await dataSource.OpenConnectionAsync();
+
+        var largeString = new string('A', (1 << 28) + 2000000);
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT @a";
+        var composite = new BigComposite
+        {
+            A = largeString
+        };
+        var range = new NpgsqlRange<BigComposite>(composite, composite);
+        var multirange = new[]
+        {
+            range,
+            range,
+            range,
+            range
+        };
+        cmd.Parameters.Add(new NpgsqlParameter
+        {
+            Value = multirange,
+            ParameterName = "a",
+            DataTypeName = rangeType + "_multirange"
+        });
+
+        Assert.ThrowsAsync<OverflowException>(async () => await cmd.ExecuteNonQueryAsync());
     }
 
     [Test, Description("CreateCommand before connection open")]
@@ -1098,11 +1157,15 @@ $$ LANGUAGE plpgsql;";
     }
 
     [Test]
-    public void Command_is_recycled()
+    public void Command_is_recycled([Values] bool allResultTypesAreUnknown)
     {
         using var conn = OpenConnection();
         var cmd1 = conn.CreateCommand();
         cmd1.CommandText = "SELECT @p1";
+        if (allResultTypesAreUnknown)
+            cmd1.AllResultTypesAreUnknown = true;
+        else
+            cmd1.UnknownResultTypeList = [true];
         var tx = conn.BeginTransaction();
         cmd1.Transaction = tx;
         cmd1.Parameters.AddWithValue("p1", 8);
@@ -1115,6 +1178,8 @@ $$ LANGUAGE plpgsql;";
         Assert.That(cmd2.CommandType, Is.EqualTo(CommandType.Text));
         Assert.That(cmd2.Transaction, Is.Null);
         Assert.That(cmd2.Parameters, Is.Empty);
+        Assert.That(cmd2.AllResultTypesAreUnknown, Is.False);
+        Assert.That(cmd2.UnknownResultTypeList, Is.Null);
         // TODO: Leaving this for now, since it'll be replaced by the new batching API
         // Assert.That(cmd2.Statements, Is.Empty);
     }
@@ -1181,6 +1246,7 @@ $$ LANGUAGE plpgsql;";
             sb.Append('@');
             sb.Append(paramName);
         }
+
         cmd.CommandText = sb.ToString();
 
         if (prepare == PrepareOrNot.Prepared)
@@ -1301,8 +1367,8 @@ $$ LANGUAGE plpgsql;";
             KeepAlive = 1,
         };
         await using var postmasterMock = PgPostmasterMock.Start(csb.ToString());
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
         var serverMock = await postmasterMock.WaitForServerConnection();
         // Wait for a keepalive to arrive at the server, reply with an error
         await serverMock.WaitForData();
@@ -1366,8 +1432,8 @@ $$ LANGUAGE plpgsql;";
             return;
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT 1";
@@ -1392,8 +1458,8 @@ $$ LANGUAGE plpgsql;";
             return;
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         await using var cmd = conn.CreateCommand();
         // Attempt to send a big enough query to fill buffers
@@ -1407,100 +1473,170 @@ $$ LANGUAGE plpgsql;";
         Assert.ThrowsAsync<NpgsqlException>(async () => await queryTask);
     }
 
-    #region Logging
-
-    [Test]
-    public async Task Log_ExecuteScalar_single_statement_without_parameters()
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/4906")]
+    [Description("Make sure we don't cancel a prepended query (and do not deadlock in case of a failure)")]
+    [Explicit("Flaky due to #5033")]
+    public async Task Not_cancel_prepended_query([Values] bool failPrependedQuery)
     {
-        await using var dataSource = CreateLoggingDataSource(out var listLoggerProvider);
-        await using var conn = await dataSource.OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT 1", conn);
+        if (IsMultiplexing)
+            return;
 
-        using (listLoggerProvider.Record())
+        await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
+        var csb = new NpgsqlConnectionStringBuilder(postmasterMock.ConnectionString)
         {
-            await cmd.ExecuteScalarAsync();
+            NoResetOnClose = false
+        };
+        await using var dataSource = CreateDataSource(csb.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        // reopen connection to append prepended query
+        await conn.CloseAsync();
+        await conn.OpenAsync();
+
+        using var cts = new CancellationTokenSource();
+        var queryTask = conn.ExecuteNonQueryAsync("SELECT 1", cancellationToken: cts.Token);
+
+        var server = await postmasterMock.WaitForServerConnection();
+        await server.ExpectSimpleQuery("DISCARD ALL");
+        await server.ExpectExtendedQuery();
+
+        var cancelTask = Task.Run(cts.Cancel);
+        var cancellationRequestTask = postmasterMock.WaitForCancellationRequest().AsTask();
+        // Give 1 second to make sure we didn't send cancellation request
+        await Task.Delay(1000);
+        Assert.IsFalse(cancelTask.IsCompleted);
+        Assert.IsFalse(cancellationRequestTask.IsCompleted);
+
+        if (failPrependedQuery)
+        {
+            await server
+                .WriteErrorResponse(PostgresErrorCodes.SyntaxError)
+                .WriteReadyForQuery()
+                .FlushAsync();
+
+            await cancelTask;
+            await cancellationRequestTask;
+
+            Assert.ThrowsAsync<PostgresException>(async () => await queryTask);
+            Assert.That(conn.State, Is.EqualTo(ConnectionState.Closed));
+            return;
         }
 
-        var executingCommandEvent = listLoggerProvider.Log.Single(l => l.Id == NpgsqlEventId.CommandExecutionCompleted);
-        Assert.That(executingCommandEvent.Message, Does.Contain("Command execution completed").And.Contains("SELECT 1"));
-        AssertLoggingStateContains(executingCommandEvent, "CommandText", "SELECT 1");
-        AssertLoggingStateDoesNotContain(executingCommandEvent, "Parameters");
+        await server
+            .WriteCommandComplete()
+            .WriteReadyForQuery()
+            .FlushAsync();
 
-        if (!IsMultiplexing)
-            AssertLoggingStateContains(executingCommandEvent, "ConnectorId", conn.ProcessID);
+        await cancelTask;
+        await cancellationRequestTask;
+
+        await server
+            .WriteErrorResponse(PostgresErrorCodes.QueryCanceled)
+            .WriteReadyForQuery()
+            .FlushAsync();
+
+        Assert.ThrowsAsync<OperationCanceledException>(async () => await queryTask);
+
+        queryTask = conn.ExecuteNonQueryAsync("SELECT 1");
+        await server.ExpectExtendedQuery();
+        await server
+            .WriteParseComplete()
+            .WriteBindComplete()
+            .WriteNoData()
+            .WriteCommandComplete()
+            .WriteReadyForQuery()
+            .FlushAsync();
+        await queryTask;
     }
 
     [Test]
-    public async Task Log_ExecuteScalar_single_statement_with_positional_parameters()
+    public async Task Cancel_while_reading_from_long_running_query()
     {
-        await using var dataSource = CreateLoggingDataSource(out var listLoggerProvider);
-        await using var conn = await dataSource.OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT $1, $2", conn);
-        cmd.Parameters.Add(new() { Value = 8 });
-        cmd.Parameters.Add(new() { NpgsqlDbType = NpgsqlDbType.Integer, Value = DBNull.Value });
+        if (IsMultiplexing)
+            return;
 
-        using (listLoggerProvider.Record())
+        await using var conn = await OpenConnectionAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+SELECT *, CASE WHEN "t"."i" = 50000 THEN pg_sleep(100) ELSE NULL END
+FROM
+(
+    SELECT generate_series(1, 1000000) AS "i"
+) AS "t"
+""";
+
+        using (var cts = new CancellationTokenSource())
+        await using (var reader = await cmd.ExecuteReaderAsync(cts.Token))
         {
-            await cmd.ExecuteScalarAsync();
+            Assert.ThrowsAsync<OperationCanceledException>(async () =>
+            {
+                var i = 0;
+                while (await reader.ReadAsync(cts.Token))
+                {
+                    i++;
+                    if (i == 10)
+                        cts.Cancel();
+                }
+            });
         }
 
-        var executingCommandEvent = listLoggerProvider.Log.Single(l => l.Id == NpgsqlEventId.CommandExecutionCompleted);
-        Assert.That(executingCommandEvent.Message, Does.Contain("Command execution completed")
-            .And.Contains("SELECT $1, $2")
-            .And.Contains("Parameters: [8, NULL]"));
-        AssertLoggingStateContains(executingCommandEvent, "CommandText", "SELECT $1, $2");
-        AssertLoggingStateContains(executingCommandEvent, "Parameters", new object[] { 8, "NULL" });
-
-        if (!IsMultiplexing)
-            AssertLoggingStateContains(executingCommandEvent, "ConnectorId", conn.ProcessID);
+        cmd.CommandText = "SELECT 42";
+        Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(42));
     }
 
-    [Test]
-    public async Task Log_ExecuteScalar_single_statement_with_named_parameters()
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5218")]
+    [Description("Make sure we do not lose unread messages after resetting oversize buffer")]
+    public async Task Oversize_buffer_lost_messages()
     {
-        await using var dataSource = CreateLoggingDataSource(out var listLoggerProvider);
-        await using var conn = await dataSource.OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT @p1, @p2", conn);
-        cmd.Parameters.Add(new() { ParameterName = "p1", Value = 8 });
-        cmd.Parameters.Add(new() { ParameterName = "p2", NpgsqlDbType = NpgsqlDbType.Integer, Value = DBNull.Value });
+        if (IsMultiplexing)
+            return;
 
-        using (listLoggerProvider.Record())
+        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
         {
-            await cmd.ExecuteScalarAsync();
-        }
+            NoResetOnClose = true
+        };
+        await using var mock = PgPostmasterMock.Start(csb.ConnectionString);
+        await using var dataSource = CreateDataSource(mock.ConnectionString);
+        await using var connection = await dataSource.OpenConnectionAsync();
+        var connector = connection.Connector!;
 
-        var executingCommandEvent = listLoggerProvider.Log.Single(l => l.Id == NpgsqlEventId.CommandExecutionCompleted);
-        Assert.That(executingCommandEvent.Message, Does.Contain("Command execution completed")
-            .And.Contains("SELECT $1, $2")
-            .And.Contains("Parameters: [8, NULL]"));
-        AssertLoggingStateContains(executingCommandEvent, "CommandText", "SELECT $1, $2");
-        AssertLoggingStateContains(executingCommandEvent, "Parameters", new object[] { 8, "NULL" });
+        var server = await mock.WaitForServerConnection();
+        await server
+            .WriteParseComplete()
+            .WriteBindComplete()
+            .WriteRowDescription(new FieldDescription(TextOid))
+            .WriteDataRowWithFlush(Encoding.ASCII.GetBytes(new string('a', connection.Settings.ReadBufferSize * 2)));
+        // Just to make sure we have enough space
+        await server.FlushAsync();
+        await server
+            .WriteDataRow(Encoding.ASCII.GetBytes("abc"))
+            .WriteCommandComplete()
+            .WriteReadyForQuery()
+            .WriteParameterStatus("SomeKey", "SomeValue")
+            .FlushAsync();
 
-        if (!IsMultiplexing)
-            AssertLoggingStateContains(executingCommandEvent, "ConnectorId", conn.ProcessID);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT 1";
+        await using (await cmd.ExecuteReaderAsync()) { }
+
+        await connection.CloseAsync();
+        await connection.OpenAsync();
+
+        Assert.AreSame(connector, connection.Connector);
+        // We'll get new value after the next query reads ParameterStatus from the buffer
+        Assert.That(connection.PostgresParameters, Does.Not.ContainKey("SomeKey").WithValue("SomeValue"));
+
+        await server
+            .WriteParseComplete()
+            .WriteBindComplete()
+            .WriteRowDescription(new FieldDescription(TextOid))
+            .WriteDataRow(Encoding.ASCII.GetBytes("abc"))
+            .WriteCommandComplete()
+            .WriteReadyForQuery()
+            .FlushAsync();
+
+        await cmd.ExecuteNonQueryAsync();
+
+        Assert.That(connection.PostgresParameters, Contains.Key("SomeKey").WithValue("SomeValue"));
     }
-
-    [Test]
-    public async Task Log_ExecuteScalar_single_statement_with_parameter_logging_off()
-    {
-        await using var dataSource = CreateLoggingDataSource(out var listLoggerProvider, sensitiveDataLoggingEnabled: false);
-        await using var conn = await dataSource.OpenConnectionAsync();
-        await using var cmd = new NpgsqlCommand("SELECT $1, $2", conn);
-        cmd.Parameters.Add(new() { Value = 8 });
-        cmd.Parameters.Add(new() { Value = 9 });
-
-        using (listLoggerProvider.Record())
-        {
-            await cmd.ExecuteScalarAsync();
-        }
-
-        var executingCommandEvent = listLoggerProvider.Log.Single(l => l.Id == NpgsqlEventId.CommandExecutionCompleted);
-        Assert.That(executingCommandEvent.Message, Does.Contain("Command execution completed").And.Contains($"SELECT $1, $2"));
-        AssertLoggingStateContains(executingCommandEvent, "CommandText", "SELECT $1, $2");
-        AssertLoggingStateDoesNotContain(executingCommandEvent, "Parameters");
-    }
-
-    #endregion Logging
-
-    public CommandTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
 }

@@ -110,6 +110,7 @@ public sealed class PostgresException : NpgsqlException
     internal static PostgresException Load(NpgsqlReadBuffer buf, bool includeDetail, ILogger exceptionLogger)
         => new(ErrorOrNoticeMessage.Load(buf, includeDetail, exceptionLogger));
 
+    [Obsolete("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.")]
     internal PostgresException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
@@ -140,6 +141,7 @@ public sealed class PostgresException : NpgsqlException
     /// </summary>
     /// <param name="info">The <see cref="SerializationInfo"/> to populate with data.</param>
     /// <param name="context">The destination (see <see cref="StreamingContext"/>) for this serialization.</param>
+    [Obsolete("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.")]
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
         base.GetObjectData(info, context);
@@ -225,6 +227,9 @@ public sealed class PostgresException : NpgsqlException
             case PostgresErrorCodes.SqlClientUnableToEstablishSqlConnection:
             case PostgresErrorCodes.SqlServerRejectedEstablishmentOfSqlConnection:
             case PostgresErrorCodes.TransactionResolutionUnknown:
+            case PostgresErrorCodes.AdminShutdown:
+            case PostgresErrorCodes.CrashShutdown:
+            case PostgresErrorCodes.IdleSessionTimeout:
                 return true;
             default:
                 return false;
@@ -254,22 +259,7 @@ public sealed class PostgresException : NpgsqlException
     /// Constants are defined in <seealso cref="PostgresErrorCodes"/>.
     /// See https://www.postgresql.org/docs/current/static/errcodes-appendix.html
     /// </remarks>
-#if NET5_0_OR_GREATER
     public override string SqlState { get; }
-#else
-    public string SqlState { get; }
-#endif
-
-    /// <summary>
-    /// The SQLSTATE code for the error.
-    /// </summary>
-    /// <remarks>
-    /// Always present.
-    /// Constants are defined in <seealso cref="PostgresErrorCodes"/>.
-    /// See https://www.postgresql.org/docs/current/static/errcodes-appendix.html
-    /// </remarks>
-    [Obsolete("Use SqlState instead")]
-    public string Code => SqlState;
 
     /// <summary>
     /// The primary human-readable error message. This should be accurate but terse.

@@ -2,15 +2,15 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Data;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Transactions;
 using Npgsql.BackendMessages;
 using Npgsql.Internal;
-using Npgsql.Internal.TypeHandlers;
-using Npgsql.Internal.TypeHandlers.CompositeHandlers;
+using Npgsql.Internal.Postgres;
+using Npgsql.PostgresTypes;
 using Npgsql.Util;
+using NpgsqlTypes;
 
 namespace Npgsql.Schema;
 
@@ -35,7 +35,12 @@ sealed class DbColumnSchemaGenerator
      {(pgVersion.IsGreaterOrEqual(10) ? "attidentity != ''" : "FALSE")} AS isidentity,
      CASE WHEN typ.typtype = 'd' THEN typ.typtypmod ELSE atttypmod END AS typmod,
      CASE WHEN atthasdef THEN (SELECT pg_get_expr(adbin, cls.oid) FROM pg_attrdef WHERE adrelid = cls.oid AND adnum = attr.attnum) ELSE NULL END AS default,
-     CASE WHEN col.is_updatable = 'YES' THEN true ELSE false END AS is_updatable,
+     CASE WHEN ((cls.relkind = ANY (ARRAY['r'::""char"", 'p'::""char""]))
+               OR ((cls.relkind = ANY (ARRAY['v'::""char"", 'f'::""char""]))
+               AND pg_column_is_updatable((cls.oid)::regclass, attr.attnum, false)))
+  	           AND attr.attidentity NOT IN ('a') THEN 'true'::boolean
+               ELSE 'false'::boolean
+               END AS is_updatable,
      EXISTS (
        SELECT * FROM pg_index
        WHERE pg_index.indrelid = cls.oid AND
@@ -53,9 +58,6 @@ FROM pg_attribute AS attr
 JOIN pg_type AS typ ON attr.atttypid = typ.oid
 JOIN pg_class AS cls ON cls.oid = attr.attrelid
 JOIN pg_namespace AS ns ON ns.oid = cls.relnamespace
-LEFT OUTER JOIN information_schema.columns AS col ON col.table_schema = nspname AND
-     col.table_name = relname AND
-     col.column_name = attname
 WHERE
      atttypid <> 0 AND
      relkind IN ('r', 'v', 'm') AND
@@ -80,9 +82,6 @@ FROM pg_attribute AS attr
 JOIN pg_type AS typ ON attr.atttypid = typ.oid
 JOIN pg_class AS cls ON cls.oid = attr.attrelid
 JOIN pg_namespace AS ns ON ns.oid = cls.relnamespace
-LEFT OUTER JOIN information_schema.columns AS col ON col.table_schema = nspname AND
-     col.table_name = relname AND
-     col.column_name = attname
 WHERE
      atttypid <> 0 AND
      relkind IN ('r', 'v', 'm') AND
@@ -111,31 +110,36 @@ ORDER BY attnum";
             // and those that don't (e.g. SELECT 8). For the former we load lots of info from
             // the backend (if fetchAdditionalInfo is true), for the latter we only have the RowDescription
 
-            var columnFieldFilter = _rowDescription
-                .Where(f => f.TableOID != 0)  // Only column fields
-                .Select(c => $"(attr.attrelid={c.TableOID} AND attr.attnum={c.ColumnAttributeNumber})")
-                .Join(" OR ");
-				
+            var filters = new List<string>();
+            for (var index = 0; index < _rowDescription.Count; index++)
+            {
+                var f = _rowDescription[index];
+                // Only column fields
+                if (f.TableOID != 0)
+                    filters.Add($"(attr.attrelid={f.TableOID} AND attr.attnum={f.ColumnAttributeNumber})");
+            }
+
+            var columnFieldFilter = string.Join(" OR ", filters);
             if (columnFieldFilter != string.Empty)
             {
                 var query = oldQueryMode
                     ? GenerateOldColumnsQuery(columnFieldFilter)
                     : GenerateColumnsQuery(_connection.PostgreSqlVersion, columnFieldFilter);
-	
+
                 using var scope = new TransactionScope(
                     TransactionScopeOption.Suppress,
                     async ? TransactionScopeAsyncFlowOption.Enabled : TransactionScopeAsyncFlowOption.Suppress);
                 using var connection = (NpgsqlConnection)((ICloneable)_connection).Clone();
-	
-                await connection.Open(async, cancellationToken);
+
+                await connection.Open(async, cancellationToken).ConfigureAwait(false);
 
                 using var cmd = new NpgsqlCommand(query, connection);
-                var reader = await cmd.ExecuteReader(CommandBehavior.Default, async, cancellationToken);
+                var reader = await cmd.ExecuteReader(async, CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    while (async ? await reader.ReadAsync(cancellationToken) : reader.Read())
+                    while (async ? await reader.ReadAsync(cancellationToken).ConfigureAwait(false) : reader.Read())
                     {
-                        var column = LoadColumnDefinition(reader, _connection.Connector!.TypeMapper.DatabaseInfo, oldQueryMode);
+                        var column = LoadColumnDefinition(reader, _connection.Connector!.DatabaseInfo, oldQueryMode);
                         for (var ordinal = 0; ordinal < numFields; ordinal++)
                         {
                             var field = _rowDescription[ordinal];
@@ -157,7 +161,7 @@ ORDER BY attnum";
                 finally
                 {
                     if (async)
-                        await reader.DisposeAsync();
+                        await reader.DisposeAsync().ConfigureAwait(false);
                     else
                         reader.Dispose();
                 }
@@ -253,19 +257,16 @@ ORDER BY attnum";
     /// </summary>
     void ColumnPostConfig(NpgsqlDbColumn column, int typeModifier)
     {
-        var typeMapper = _connection.Connector!.TypeMapper;
+        var serializerOptions = _connection.Connector!.SerializerOptions;
 
-        column.NpgsqlDbType = typeMapper.GetTypeInfoByOid(column.TypeOID).npgsqlDbType;
-        column.DataType = typeMapper.TryResolveByOID(column.TypeOID, out var handler)
-            ? handler.GetFieldType()
-            : null;
-
-        if (column.DataType != null)
+        column.NpgsqlDbType = column.PostgresType.DataTypeName.ToNpgsqlDbType();
+        if (serializerOptions.GetDefaultTypeInfo(serializerOptions.ToCanonicalTypeId(column.PostgresType)) is { } typeInfo)
         {
-            column.IsLong = handler is ByteaHandler;
+            column.DataType = typeInfo.Type;
+            column.IsLong = column.PostgresType.DataTypeName == DataTypeNames.Bytea;
 
-            if (handler is ICompositeHandler)
-                column.UdtAssemblyQualifiedName = column.DataType.AssemblyQualifiedName;
+            if (column.PostgresType is PostgresCompositeType)
+                column.UdtAssemblyQualifiedName = typeInfo.Type.AssemblyQualifiedName;
         }
 
         var facets = column.PostgresType.GetFacets(typeModifier);

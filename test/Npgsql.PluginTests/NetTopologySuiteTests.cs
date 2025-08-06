@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading.Tasks;
@@ -14,144 +13,129 @@ namespace Npgsql.PluginTests;
 
 public class NetTopologySuiteTests : TestBase
 {
-    public struct TestData
-    {
-        public Ordinates Ordinates;
-        public Geometry Geometry;
-        public string CommandText;
-    }
+    static readonly TestCaseData[] TestCases =
+    [
+        new TestCaseData(Ordinates.None, new Point(1d, 2500d), "st_makepoint(1,2500)")
+            .SetName("Point"),
 
-    public static IEnumerable TestCases {
-        get
-        {
-            // Two dimensional data
-            yield return new TestCaseData(Ordinates.None, new Point(1d, 2500d), "st_makepoint(1,2500)");
+        new TestCaseData(Ordinates.None, new MultiPoint([new Point(new Coordinate(1d, 1d))]), "st_multi(st_makepoint(1, 1))")
+            .SetName("MultiPoint"),
 
-            yield return new TestCaseData(
+        new TestCaseData(
                 Ordinates.None,
-                new LineString(new[] { new Coordinate(1d, 1d), new Coordinate(1d, 2500d) }),
-                "st_makeline(st_makepoint(1,1),st_makepoint(1,2500))"
-            );
+                new LineString([new Coordinate(1d, 1d), new Coordinate(1d, 2500d)]),
+                "st_makeline(st_makepoint(1,1),st_makepoint(1,2500))")
+            .SetName("LineString"),
 
-            yield return new TestCaseData(
+        new TestCaseData(
+                Ordinates.None,
+                new MultiLineString([
+                    new LineString([
+                        new Coordinate(1d, 1d),
+                        new Coordinate(1d, 2500d)
+                    ])
+                ]),
+                "st_multi(st_makeline(st_makepoint(1,1),st_makepoint(1,2500)))")
+            .SetName("MultiLineString"),
+
+        new TestCaseData(
                 Ordinates.None,
                 new Polygon(
-                    new LinearRing(new[]
-                    {
+                    new LinearRing([
                         new Coordinate(1d, 1d),
                         new Coordinate(2d, 2d),
                         new Coordinate(3d, 3d),
                         new Coordinate(1d, 1d)
-                    })
+                    ])
                 ),
-                "st_makepolygon(st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)]))"
-            );
+                "st_makepolygon(st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)]))")
+            .SetName("Polygon"),
 
-            yield return new TestCaseData(
+        new TestCaseData(
                 Ordinates.None,
-                new MultiPoint(new[] { new Point(new Coordinate(1d, 1d)) }),
-                "st_multi(st_makepoint(1, 1))"
-            );
-
-            yield return new TestCaseData(
-                Ordinates.None,
-                new MultiLineString(new[]
-                {
-                    new LineString(new[]
-                    {
-                        new Coordinate(1d, 1d),
-                        new Coordinate(1d, 2500d)
-                    })
-                }),
-                "st_multi(st_makeline(st_makepoint(1,1),st_makepoint(1,2500)))"
-            );
-
-            yield return new TestCaseData(
-                Ordinates.None,
-                new MultiPolygon(new[]
-                {
+                new MultiPolygon([
                     new Polygon(
-                        new LinearRing(new[]
-                        {
+                        new LinearRing([
                             new Coordinate(1d, 1d),
                             new Coordinate(2d, 2d),
                             new Coordinate(3d, 3d),
                             new Coordinate(1d, 1d)
-                        })
+                        ])
                     )
-                }),
-                "st_multi(st_makepolygon(st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)])))"
-            );
+                ]),
+                "st_multi(st_makepolygon(st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)])))")
+            .SetName("MultiPolygon"),
 
-            yield return new TestCaseData(
-                Ordinates.None,
-                GeometryCollection.Empty,
-                "st_geomfromtext('GEOMETRYCOLLECTION EMPTY')"
-            );
+        new TestCaseData(Ordinates.None, GeometryCollection.Empty, "st_geomfromtext('GEOMETRYCOLLECTION EMPTY')")
+            .SetName("EmptyCollection"),
 
-            yield return new TestCaseData(
+        new TestCaseData(
                 Ordinates.None,
-                new GeometryCollection(new Geometry[]
-                {
+                new GeometryCollection([
                     new Point(new Coordinate(1d, 1d)),
-                    new MultiPolygon(new[]
-                    {
+                    new MultiPolygon([
                         new Polygon(
-                            new LinearRing(new[]
-                            {
+                            new LinearRing([
                                 new Coordinate(1d, 1d),
                                 new Coordinate(2d, 2d),
                                 new Coordinate(3d, 3d),
                                 new Coordinate(1d, 1d)
-                            })
+                            ])
                         )
-                    })
-                }),
-                "st_collect(st_makepoint(1,1),st_multi(st_makepolygon(st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)]))))"
-            );
+                    ])
+                ]),
+                "st_collect(st_makepoint(1,1),st_multi(st_makepolygon(st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)]))))")
+            .SetName("Collection"),
 
-            yield return new TestCaseData(
+        new TestCaseData(
                 Ordinates.None,
-                new GeometryCollection(new Geometry[]
-                {
+                new GeometryCollection([
                     new Point(new Coordinate(1d, 1d)),
-                    new GeometryCollection(new Geometry[]
-                    {
+                    new GeometryCollection([
                         new Point(new Coordinate(1d, 1d)),
-                        new MultiPolygon(new[]
-                        {
+                        new MultiPolygon([
                             new Polygon(
-                                new LinearRing(new[]
-                                {
+                                new LinearRing([
                                     new Coordinate(1d, 1d),
                                     new Coordinate(2d, 2d),
                                     new Coordinate(3d, 3d),
                                     new Coordinate(1d, 1d)
-                                })
+                                ])
                             )
-                        })
-                    })
-                }),
-                "st_collect(st_makepoint(1,1),st_collect(st_makepoint(1,1),st_multi(st_makepolygon(st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)])))))"
-            );
+                        ])
+                    ])
+                ]),
+                "st_collect(st_makepoint(1,1),st_collect(st_makepoint(1,1),st_multi(st_makepolygon(st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)])))))")
+            .SetName("CollectionNested"),
 
-            yield return new TestCaseData(Ordinates.XYZ, new Point(1d, 2d, 3d), "st_makepoint(1,2,3)");
+        new TestCaseData(Ordinates.XYZ, new Point(1d, 2d, 3d), "st_makepoint(1,2,3)")
+            .SetName("PointXYZ"),
 
-            yield return new TestCaseData(
+        new TestCaseData(
                 Ordinates.XYZM,
                 new Point(
-                    new DotSpatialAffineCoordinateSequence(new[] { 1d, 2d }, new[] { 3d }, new[] { 4d }),
+                    new DotSpatialAffineCoordinateSequence([1d, 2d], [3d], [4d]),
                     GeometryFactory.Default),
-                "st_makepoint(1,2,3,4)"
-            );
-        }
-    }
+                "st_makepoint(1,2,3,4)")
+            .SetName("PointXYZM"),
+
+        new TestCaseData(
+                Ordinates.None,
+                new LinearRing([
+                    new Coordinate(1d, 1d),
+                        new Coordinate(2d, 2d),
+                        new Coordinate(3d, 3d),
+                        new Coordinate(1d, 1d)
+                ]),
+                "st_makeline(ARRAY[st_makepoint(1,1),st_makepoint(2,2),st_makepoint(3,3),st_makepoint(1,1)])")
+            .SetName("LinearRing")
+    ];
 
     [Test, TestCaseSource(nameof(TestCases))]
     public async Task Read(Ordinates ordinates, Geometry geometry, string sqlRepresentation)
     {
-        using var conn = await OpenConnectionAsync();
-        using var cmd = conn.CreateCommand();
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"SELECT {sqlRepresentation}";
         Assert.That(Equals(cmd.ExecuteScalar(), geometry));
     }
@@ -159,8 +143,8 @@ public class NetTopologySuiteTests : TestBase
     [Test, TestCaseSource(nameof(TestCases))]
     public async Task Write(Ordinates ordinates, Geometry geometry, string sqlRepresentation)
     {
-        using var conn = await OpenConnectionAsync(handleOrdinates: ordinates);
-        using var cmd = conn.CreateCommand();
+        await using var conn = await OpenConnectionAsync(handleOrdinates: ordinates);
+        await using var cmd = conn.CreateCommand();
         cmd.Parameters.AddWithValue("p1", geometry);
         cmd.CommandText = $"SELECT st_asewkb(@p1) = st_asewkb({sqlRepresentation})";
         Assert.That(cmd.ExecuteScalar(), Is.True);
@@ -172,7 +156,7 @@ public class NetTopologySuiteTests : TestBase
         var point = new Point(new Coordinate(1d, 1d));
 
         await AssertType(
-            NtsDataSource,
+            DataSource,
             new Geometry[] { point },
             '{' + GetSqlLiteral(point) + '}',
             "geometry[]",
@@ -183,9 +167,9 @@ public class NetTopologySuiteTests : TestBase
     [Test]
     public async Task Read_as_concrete_type()
     {
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT st_makepoint(1,1)", conn);
-        using var reader = cmd.ExecuteReader();
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new NpgsqlCommand("SELECT st_makepoint(1,1)", conn);
+        await using var reader = cmd.ExecuteReader();
         reader.Read();
         Assert.That(reader.GetFieldValue<Point>(0), Is.EqualTo(new Point(new Coordinate(1d, 1d))));
         Assert.That(() => reader.GetFieldValue<Polygon>(0), Throws.Exception.TypeOf<InvalidCastException>());
@@ -195,16 +179,16 @@ public class NetTopologySuiteTests : TestBase
     public async Task Roundtrip_geometry_geography()
     {
         var point = new Point(new Coordinate(1d, 1d));
-        using var conn = await OpenConnectionAsync();
-        conn.ExecuteNonQuery("CREATE TEMP TABLE data (geom GEOMETRY, geog GEOGRAPHY)");
-        using (var cmd = new NpgsqlCommand("INSERT INTO data (geom, geog) VALUES (@p, @p)", conn))
+        await using var conn = await OpenConnectionAsync();
+        await conn.ExecuteNonQueryAsync("CREATE TEMP TABLE data (geom GEOMETRY, geog GEOGRAPHY)");
+        await using (var cmd = new NpgsqlCommand("INSERT INTO data (geom, geog) VALUES (@p, @p)", conn))
         {
             cmd.Parameters.AddWithValue("@p", point);
             cmd.ExecuteNonQuery();
         }
 
-        using (var cmd = new NpgsqlCommand("SELECT geom, geog FROM data", conn))
-        using (var reader = cmd.ExecuteReader())
+        await using (var cmd = new NpgsqlCommand("SELECT geom, geog FROM data", conn))
+        await using (var reader = cmd.ExecuteReader())
         {
             reader.Read();
             Assert.That(reader[0], Is.EqualTo(point));
@@ -215,7 +199,7 @@ public class NetTopologySuiteTests : TestBase
     [Test, Explicit]
     public async Task Concurrency_test()
     {
-        await using var adminConnection = OpenConnection();
+        await using var adminConnection = await OpenConnectionAsync();
         var table = await CreateTempTable(
             adminConnection,
             "point GEOMETRY, linestring GEOMETRY, polygon GEOMETRY, " +
@@ -224,53 +208,45 @@ public class NetTopologySuiteTests : TestBase
         await adminConnection.ExecuteNonQueryAsync($"INSERT INTO {table} DEFAULT VALUES");
 
         var point = new Point(new Coordinate(1d, 1d));
-        var lineString = new LineString(new[] { new Coordinate(1d, 1d), new Coordinate(1d, 2500d) });
+        var lineString = new LineString([new Coordinate(1d, 1d), new Coordinate(1d, 2500d)]);
         var polygon = new Polygon(
-            new LinearRing(new[]
-            {
+            new LinearRing([
                 new Coordinate(1d, 1d),
                 new Coordinate(2d, 2d),
                 new Coordinate(3d, 3d),
                 new Coordinate(1d, 1d)
-            })
+            ])
         );
-        var multiPoint = new MultiPoint(new[] { new Point(new Coordinate(1d, 1d)) });
-        var multiLineString = new MultiLineString(new[]
-        {
-            new LineString(new[]
-            {
+        var multiPoint = new MultiPoint([new Point(new Coordinate(1d, 1d))]);
+        var multiLineString = new MultiLineString([
+            new LineString([
                 new Coordinate(1d, 1d),
                 new Coordinate(1d, 2500d)
-            })
-        });
-        var multiPolygon = new MultiPolygon(new[]
-        {
+            ])
+        ]);
+        var multiPolygon = new MultiPolygon([
             new Polygon(
-                new LinearRing(new[]
-                {
+                new LinearRing([
                     new Coordinate(1d, 1d),
                     new Coordinate(2d, 2d),
                     new Coordinate(3d, 3d),
                     new Coordinate(1d, 1d)
-                })
+                ])
             )
-        });
-        var collection = new GeometryCollection(new Geometry[]
-        {
+        ]);
+        var collection = new GeometryCollection([
             new Point(new Coordinate(1d, 1d)),
-            new MultiPolygon(new[]
-            {
+            new MultiPolygon([
                 new Polygon(
-                    new LinearRing(new[]
-                    {
+                    new LinearRing([
                         new Coordinate(1d, 1d),
                         new Coordinate(2d, 2d),
                         new Coordinate(3d, 3d),
                         new Coordinate(1d, 1d)
-                    })
+                    ])
                 )
-            })
-        });
+            ])
+        ]);
 
         await Task.WhenAll(Enumerable.Range(0, 30).Select(i => Task.Run(async () =>
         {
@@ -324,7 +300,7 @@ public class NetTopologySuiteTests : TestBase
         });
 
         if (handleOrdinates == Ordinates.XY)
-            NtsDataSource = dataSource;
+            _xyDataSource ??= dataSource;
 
         return dataSource.OpenConnectionAsync();
     }
@@ -343,6 +319,8 @@ public class NetTopologySuiteTests : TestBase
     public async Task Teardown()
         => await Task.WhenAll(NtsDataSources.Values.Select(async ds => await ds.DisposeAsync()));
 
-    NpgsqlDataSource NtsDataSource = default!;
+    protected override NpgsqlDataSource DataSource => _xyDataSource ?? throw new InvalidOperationException();
+    NpgsqlDataSource? _xyDataSource;
+
     ConcurrentDictionary<Ordinates, NpgsqlDataSource> NtsDataSources = new();
 }

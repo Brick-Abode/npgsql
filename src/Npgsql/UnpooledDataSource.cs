@@ -1,19 +1,14 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Transactions;
 using Npgsql.Internal;
 using Npgsql.Util;
 
 namespace Npgsql;
 
-sealed class UnpooledDataSource : NpgsqlDataSource
+sealed class UnpooledDataSource(NpgsqlConnectionStringBuilder settings, NpgsqlDataSourceConfiguration dataSourceConfig)
+    : NpgsqlDataSource(settings, dataSourceConfig)
 {
-    public UnpooledDataSource(NpgsqlConnectionStringBuilder settings, NpgsqlDataSourceConfiguration dataSourceConfig)
-        : base(settings, dataSourceConfig)
-    {
-    }
-
     volatile int _numConnectors;
 
     internal override (int Total, int Idle, int Busy) Statistics => (_numConnectors, 0, _numConnectors);
@@ -26,7 +21,7 @@ sealed class UnpooledDataSource : NpgsqlDataSource
         CheckDisposed();
 
         var connector = new NpgsqlConnector(this, conn);
-        await connector.Open(timeout, async, cancellationToken);
+        await connector.Open(timeout, async, cancellationToken).ConfigureAwait(false);
         Interlocked.Increment(ref _numConnectors);
         return connector;
     }
@@ -47,14 +42,7 @@ sealed class UnpooledDataSource : NpgsqlDataSource
         connector.Close();
     }
 
-    internal override void Clear() {}
-
-    internal override bool TryRentEnlistedPending(Transaction transaction, NpgsqlConnection connection,
-        [NotNullWhen(true)] out NpgsqlConnector? connector)
+    public override void Clear()
     {
-        connector = null;
-        return false;
     }
-
-    internal override bool TryRemovePendingEnlistedConnector(NpgsqlConnector connector, Transaction transaction) => false;
 }

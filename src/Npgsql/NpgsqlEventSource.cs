@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Diagnostics.Tracing;
-using System.Runtime.CompilerServices;
 
 namespace Npgsql;
 
@@ -16,7 +15,6 @@ sealed class NpgsqlEventSource : EventSource
     internal const int CommandStartId = 3;
     internal const int CommandStopId = 4;
 
-#if !NETSTANDARD2_0
     IncrementingPollingCounter? _bytesWrittenPerSecondCounter;
     IncrementingPollingCounter? _bytesReadPerSecondCounter;
 
@@ -32,7 +30,6 @@ sealed class NpgsqlEventSource : EventSource
 
     PollingCounter? _multiplexingAverageCommandsPerBatchCounter;
     PollingCounter? _multiplexingAverageWriteTimePerBatchCounter;
-#endif
 
     long _bytesWritten;
     long _bytesRead;
@@ -55,46 +52,66 @@ sealed class NpgsqlEventSource : EventSource
     //   https://blogs.msdn.microsoft.com/vancem/2015/09/14/exploring-eventsource-activity-correlation-and-causation-features/
     // - A stop event's event id must be next one after its start event.
 
-    internal void BytesWritten(long bytesWritten) => Interlocked.Add(ref _bytesWritten, bytesWritten);
-    internal void BytesRead(long bytesRead) => Interlocked.Add(ref _bytesRead, bytesRead);
+    internal void BytesWritten(long bytesWritten)
+    {
+        if (IsEnabled())
+            Interlocked.Add(ref _bytesWritten, bytesWritten);
+    }
+
+    internal void BytesRead(long bytesRead)
+    {
+        if (IsEnabled())
+            Interlocked.Add(ref _bytesRead, bytesRead);
+    }
 
     public void CommandStart(string sql)
     {
-        Interlocked.Increment(ref _totalCommands);
-        Interlocked.Increment(ref _currentCommands);
+        if (IsEnabled())
+        {
+            Interlocked.Increment(ref _totalCommands);
+            Interlocked.Increment(ref _currentCommands);
+        }
         NpgsqlSqlEventSource.Log.CommandStart(sql);
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
     public void CommandStop()
     {
-        Interlocked.Decrement(ref _currentCommands);
+        if (IsEnabled())
+            Interlocked.Decrement(ref _currentCommands);
         NpgsqlSqlEventSource.Log.CommandStop();
     }
 
-    internal void CommandStartPrepared() => Interlocked.Increment(ref _totalPreparedCommands);
+    internal void CommandStartPrepared()
+    {
+        if (IsEnabled())
+            Interlocked.Increment(ref _totalPreparedCommands);
+    }
 
-    internal void CommandFailed() => Interlocked.Increment(ref _failedCommands);
+    internal void CommandFailed()
+    {
+        if (IsEnabled())
+            Interlocked.Increment(ref _failedCommands);
+    }
 
     internal void DataSourceCreated(NpgsqlDataSource dataSource)
     {
-#if !NETSTANDARD2_0
         lock (_dataSourcesLock)
         {
             _dataSources.Add(dataSource, null);
         }
-#endif
     }
 
-    internal void MultiplexingBatchSent(int numCommands, Stopwatch stopwatch)
+    internal void MultiplexingBatchSent(int numCommands, long elapsedTicks)
     {
         // TODO: CAS loop instead of 3 separate interlocked operations?
-        Interlocked.Increment(ref _multiplexingBatchesSent);
-        Interlocked.Add(ref _multiplexingCommandsSent, numCommands);
-        Interlocked.Add(ref _multiplexingTicksWritten, stopwatch.ElapsedTicks);
+        if (IsEnabled())
+        {
+            Interlocked.Increment(ref _multiplexingBatchesSent);
+            Interlocked.Add(ref _multiplexingCommandsSent, numCommands);
+            Interlocked.Add(ref _multiplexingTicksWritten, elapsedTicks);
+        }
     }
 
-#if !NETSTANDARD2_0
     double GetDataSourceCount()
     {
         lock (_dataSourcesLock)
@@ -204,6 +221,4 @@ sealed class NpgsqlEventSource : EventSource
             }
         }
     }
-
-#endif
 }

@@ -19,12 +19,6 @@ public abstract class UpdateMessage : TransactionalMessage
     public RelationMessage Relation { get; private set; } = null!;
 
     /// <summary>
-    /// ID of the relation corresponding to the ID in the relation message.
-    /// </summary>
-    [Obsolete("Use Relation.RelationId")]
-    public uint RelationId => Relation.RelationId;
-
-    /// <summary>
     /// Columns representing the new row.
     /// </summary>
     public abstract ReplicationTuple NewRow { get; }
@@ -55,13 +49,13 @@ public abstract class UpdateMessage : TransactionalMessage
             // This will throw if we're already reading (or consumed) the second row
             var enumerator = base.GetAsyncEnumerator(cancellationToken);
 
-            await _oldRowTupleEnumerable.Consume(cancellationToken);
-            await ReadBuffer.EnsureAsync(3);
+            await _oldRowTupleEnumerable.Consume(cancellationToken).ConfigureAwait(false);
+            await ReadBuffer.EnsureAsync(3).ConfigureAwait(false);
             var tupleType = (TupleType)ReadBuffer.ReadByte();
             Debug.Assert(tupleType == TupleType.NewTuple);
             _ = ReadBuffer.ReadUInt16(); // numColumns,
 
-            while (await enumerator.MoveNextAsync())
+            while (await enumerator.MoveNextAsync().ConfigureAwait(false))
                 yield return enumerator.Current;
         }
 
@@ -69,13 +63,13 @@ public abstract class UpdateMessage : TransactionalMessage
         {
             if (State == RowState.NotRead)
             {
-                await _oldRowTupleEnumerable.Consume(cancellationToken);
-                await ReadBuffer.EnsureAsync(3);
+                await _oldRowTupleEnumerable.Consume(cancellationToken).ConfigureAwait(false);
+                await ReadBuffer.EnsureAsync(3).ConfigureAwait(false);
                 var tupleType = (TupleType)ReadBuffer.ReadByte();
                 Debug.Assert(tupleType == TupleType.NewTuple);
                 _ = ReadBuffer.ReadUInt16(); // numColumns,
             }
-            await base.Consume(cancellationToken);
+            await base.Consume(cancellationToken).ConfigureAwait(false);
         }
     }
 }

@@ -1,14 +1,16 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Npgsql.NameTranslation;
 using Npgsql.PostgresTypes;
+using Npgsql.Properties;
 using NpgsqlTypes;
 using NUnit.Framework;
 using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests.Types;
 
-public class EnumTests : MultiplexingTestBase
+public class EnumTests(MultiplexingMode multiplexingMode) : MultiplexingTestBase(multiplexingMode)
 {
     enum Mood { Sad, Ok, Happy }
     enum AnotherEnum { Value1, Value2 }
@@ -25,6 +27,53 @@ public class EnumTests : MultiplexingTestBase
         await using var dataSource = dataSourceBuilder.Build();
 
         await AssertType(dataSource, Mood.Happy, "happy", type, npgsqlDbType: null);
+    }
+
+    [Test]
+    public async Task Data_source_unmap()
+    {
+        await using var adminConnection = await OpenConnectionAsync();
+        var type = await GetTempTypeName(adminConnection);
+        await adminConnection.ExecuteNonQueryAsync($"CREATE TYPE {type} AS ENUM ('sad', 'ok', 'happy')");
+
+        var dataSourceBuilder = CreateDataSourceBuilder();
+        dataSourceBuilder.MapEnum<Mood>(type);
+
+        var isUnmapSuccessful = dataSourceBuilder.UnmapEnum<Mood>(type);
+        await using var dataSource = dataSourceBuilder.Build();
+
+        Assert.IsTrue(isUnmapSuccessful);
+        Assert.ThrowsAsync<InvalidCastException>(() => AssertType(dataSource, Mood.Happy, "happy", type, npgsqlDbType: null));
+    }
+
+    [Test]
+    public async Task Data_source_mapping_non_generic()
+    {
+        await using var adminConnection = await OpenConnectionAsync();
+        var type = await GetTempTypeName(adminConnection);
+        await adminConnection.ExecuteNonQueryAsync($"CREATE TYPE {type} AS ENUM ('sad', 'ok', 'happy')");
+
+        var dataSourceBuilder = CreateDataSourceBuilder();
+        dataSourceBuilder.MapEnum(typeof(Mood), type);
+        await using var dataSource = dataSourceBuilder.Build();
+        await AssertType(dataSource, Mood.Happy, "happy", type, npgsqlDbType: null);
+    }
+
+    [Test]
+    public async Task Data_source_unmap_non_generic()
+    {
+        await using var adminConnection = await OpenConnectionAsync();
+        var type = await GetTempTypeName(adminConnection);
+        await adminConnection.ExecuteNonQueryAsync($"CREATE TYPE {type} AS ENUM ('sad', 'ok', 'happy')");
+
+        var dataSourceBuilder = CreateDataSourceBuilder();
+        dataSourceBuilder.MapEnum(typeof(Mood), type);
+
+        var isUnmapSuccessful = dataSourceBuilder.UnmapEnum(typeof(Mood), type);
+        await using var dataSource = dataSourceBuilder.Build();
+
+        Assert.IsTrue(isUnmapSuccessful);
+        Assert.ThrowsAsync<InvalidCastException>(() => AssertType(dataSource, Mood.Happy, "happy", type, npgsqlDbType: null));
     }
 
     [Test]
@@ -94,7 +143,8 @@ CREATE TYPE {type2} AS ENUM ('label1', 'label2', 'label3')");
     [Test]
     public async Task Unmapped_enum_as_clr_enum()
     {
-        await using var connection = await OpenConnectionAsync();
+        await using var dataSource = CreateDataSource(b => b.EnableUnmappedTypes());
+        await using var connection = await dataSource.OpenConnectionAsync();
         var type1 = await GetTempTypeName(connection);
         var type2 = await GetTempTypeName(connection);
         await connection.ExecuteNonQueryAsync(@$"
@@ -104,6 +154,28 @@ CREATE TYPE {type2} AS ENUM ('value1', 'value2');");
 
         await AssertType(connection, Mood.Happy, "happy", type1, npgsqlDbType: null, isDefault: false);
         await AssertType(connection, AnotherEnum.Value2, "value2", type2, npgsqlDbType: null, isDefault: false);
+    }
+
+    [Test]
+    public async Task Unmapped_enum_as_clr_enum_supported_only_with_EnableUnmappedTypes()
+    {
+        await using var connection = await DataSource.OpenConnectionAsync();
+        var enumType = await GetTempTypeName(connection);
+        await connection.ExecuteNonQueryAsync($"CREATE TYPE {enumType} AS ENUM ('sad', 'ok', 'happy')");
+        await connection.ReloadTypesAsync();
+
+        var errorMessage = string.Format(
+            NpgsqlStrings.UnmappedEnumsNotEnabled,
+            nameof(NpgsqlSlimDataSourceBuilder.EnableUnmappedTypes),
+            nameof(NpgsqlDataSourceBuilder));
+
+        var exception = await AssertTypeUnsupportedWrite(Mood.Happy, enumType);
+        Assert.IsInstanceOf<NotSupportedException>(exception.InnerException);
+        Assert.That(exception.InnerException!.Message, Is.EqualTo(errorMessage));
+
+        exception = await AssertTypeUnsupportedRead<Mood>("happy", enumType);
+        Assert.IsInstanceOf<NotSupportedException>(exception.InnerException);
+        Assert.That(exception.InnerException!.Message, Is.EqualTo(errorMessage));
     }
 
     [Test]
@@ -150,8 +222,8 @@ CREATE TYPE {schema2}.my_enum AS ENUM ('alpha');");
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/1779")]
     public async Task GetPostgresType()
     {
-        using var _ = CreateTempPool(ConnectionString, out var connectionString);
-        using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource();
+        using var conn = await dataSource.OpenConnectionAsync();
         var type = await GetTempTypeName(conn);
         await conn.ExecuteNonQueryAsync($"CREATE TYPE {type} AS ENUM ('sad', 'ok', 'happy')");
         conn.ReloadTypes();
@@ -171,6 +243,4 @@ CREATE TYPE {schema2}.my_enum AS ENUM ('alpha');");
         [PgName("label3")]
         Label3
     }
-
-    public EnumTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
 }

@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Text;
 
-#pragma warning disable CA1034
 
 // ReSharper disable once CheckNamespace
 namespace NpgsqlTypes;
@@ -77,10 +76,10 @@ public abstract class NpgsqlTsQuery : IEquatable<NpgsqlTsQuery>
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
+    [Obsolete("Client-side parsing of NpgsqlTsQuery is unreliable and cannot fully duplicate the PostgreSQL logic. Use PG functions instead (e.g. to_tsquery)")]
     public static NpgsqlTsQuery Parse(string value)
     {
-        if (value == null)
-            throw new ArgumentNullException(nameof(value));
+        ArgumentNullException.ThrowIfNull(value);
 
         var valStack = new Stack<NpgsqlTsQuery>();
         var opStack = new Stack<NpgsqlTsQueryOperator>();
@@ -89,7 +88,7 @@ public abstract class NpgsqlTsQuery : IEquatable<NpgsqlTsQuery>
         var pos = 0;
         var expectingBinOp = false;
 
-        var lastFollowedByOpDistance = -1;
+        short lastFollowedByOpDistance = -1;
 
         NextToken:
         if (pos >= value.Length)
@@ -125,7 +124,7 @@ public abstract class NpgsqlTsQuery : IEquatable<NpgsqlTsQuery>
             {
                 lastFollowedByOpDistance = 1;
             }
-            else if (!int.TryParse(followedByOpDistanceString, out lastFollowedByOpDistance)
+            else if (!short.TryParse(followedByOpDistanceString, out lastFollowedByOpDistance)
                      || lastFollowedByOpDistance < 0)
             {
                 throw new FormatException("Syntax error in tsquery. Malformed distance in 'followed by' operator.");
@@ -172,7 +171,7 @@ public abstract class NpgsqlTsQuery : IEquatable<NpgsqlTsQuery>
                 var tsOp = opStack.Pop();
                 valStack.Push((char)tsOp switch
                 {
-                    '&' => (NpgsqlTsQuery)new NpgsqlTsQueryAnd(left, right),
+                    '&' => new NpgsqlTsQueryAnd(left, right),
                     '|' => new NpgsqlTsQueryOr(left, right),
                     '<' => new NpgsqlTsQueryFollowedBy(left, tsOp.FollowedByDistance, right),
                     _   => throw new FormatException("Syntax error in tsquery")
@@ -253,18 +252,27 @@ public abstract class NpgsqlTsQuery : IEquatable<NpgsqlTsQuery>
         if (pos >= value.Length)
             goto Finish;
         ch = value[pos];
-        if (ch == '*')
+        switch (ch)
+        {
+        case '*':
             ((NpgsqlTsQueryLexeme)valStack.Peek()).IsPrefixSearch = true;
-        else if (ch == 'a' || ch == 'A')
+            break;
+        case 'a' or 'A':
             ((NpgsqlTsQueryLexeme)valStack.Peek()).Weights |= NpgsqlTsQueryLexeme.Weight.A;
-        else if (ch == 'b' || ch == 'B')
+            break;
+        case 'b' or 'B':
             ((NpgsqlTsQueryLexeme)valStack.Peek()).Weights |= NpgsqlTsQueryLexeme.Weight.B;
-        else if (ch == 'c' || ch == 'C')
+            break;
+        case 'c' or 'C':
             ((NpgsqlTsQueryLexeme)valStack.Peek()).Weights |= NpgsqlTsQueryLexeme.Weight.C;
-        else if (ch == 'd' || ch == 'D')
+            break;
+        case 'd' or 'D':
             ((NpgsqlTsQueryLexeme)valStack.Peek()).Weights |= NpgsqlTsQueryLexeme.Weight.D;
-        else
+            break;
+        default:
             goto PushedVal;
+        }
+
         pos++;
         goto InWeightInfo;
 
@@ -338,12 +346,12 @@ public abstract class NpgsqlTsQuery : IEquatable<NpgsqlTsQuery>
     }
 
     /// <inheritdoc/>
-    public override int GetHashCode() =>
-        throw new NotImplementedException();
+    public override int GetHashCode()
+        => throw new NotSupportedException("Must be overridden");
 
     /// <inheritdoc/>
-    public override bool Equals(object? obj) =>
-        obj is NpgsqlTsQuery query && query.Equals(this);
+    public override bool Equals(object? obj)
+        => obj is NpgsqlTsQuery query && query.Equals(this);
 
     /// <summary>
     /// Returns a value indicating whether this instance and a specified <see cref="NpgsqlTsQuery"/> object represent the same value.
@@ -358,9 +366,8 @@ public abstract class NpgsqlTsQuery : IEquatable<NpgsqlTsQuery>
     /// <param name="left">The first object to compare.</param>
     /// <param name="right">The second object to compare.</param>
     /// <returns><see langword="true"/> if <paramref name="left"/> and <paramref name="right"/> are equal; otherwise, <see langword="false"/>.</returns>
-    public static bool operator ==(NpgsqlTsQuery? left, NpgsqlTsQuery? right) =>
-        left is null ? right is null : left.Equals(right);
-
+    public static bool operator ==(NpgsqlTsQuery? left, NpgsqlTsQuery? right)
+        => left is null ? right is null : left.Equals(right);
 
     /// <summary>
     /// Indicates whether the values of two specified <see cref="NpgsqlTsQuery"/> objects are not equal.
@@ -368,20 +375,14 @@ public abstract class NpgsqlTsQuery : IEquatable<NpgsqlTsQuery>
     /// <param name="left">The first object to compare.</param>
     /// <param name="right">The second object to compare.</param>
     /// <returns><see langword="true"/> if <paramref name="left"/> and <paramref name="right"/> are not equal; otherwise, <see langword="false"/>.</returns>
-    public static bool operator !=(NpgsqlTsQuery? left, NpgsqlTsQuery? right) =>
-        left is null ? right is not null : !left.Equals(right);
+    public static bool operator !=(NpgsqlTsQuery? left, NpgsqlTsQuery? right)
+        => left is null ? right is not null : !left.Equals(right);
 }
 
-readonly struct NpgsqlTsQueryOperator
+readonly struct NpgsqlTsQueryOperator(char character, short followedByDistance)
 {
-    public readonly char Char;
-    public readonly int FollowedByDistance;
-
-    public NpgsqlTsQueryOperator(char character, int followedByDistance)
-    {
-        Char = character;
-        FollowedByDistance = followedByDistance;
-    }
+    public readonly char Char = character;
+    public readonly short FollowedByDistance = followedByDistance;
 
     public static implicit operator NpgsqlTsQueryOperator(char c) => new(c, 0);
     public static implicit operator char(NpgsqlTsQueryOperator o) => o.Char;
@@ -402,8 +403,7 @@ public sealed class NpgsqlTsQueryLexeme : NpgsqlTsQuery
         get => _text;
         set
         {
-            if (string.IsNullOrEmpty(value))
-                throw new ArgumentException("Text is null or empty string", nameof(value));
+            ArgumentException.ThrowIfNullOrEmpty(value);
 
             _text = value;
         }
@@ -461,10 +461,8 @@ public sealed class NpgsqlTsQueryLexeme : NpgsqlTsQuery
     /// <summary>
     /// Weight enum, can be OR'ed together.
     /// </summary>
-#pragma warning disable CA1714
     [Flags]
     public enum Weight
-#pragma warning restore CA1714
     {
         /// <summary>
         /// None
@@ -506,15 +504,15 @@ public sealed class NpgsqlTsQueryLexeme : NpgsqlTsQuery
     }
 
     /// <inheritdoc/>
-    public override bool Equals(NpgsqlTsQuery? other) =>
-        other is NpgsqlTsQueryLexeme lexeme &&
-        lexeme.Text == Text &&
-        lexeme.Weights == Weights &&
-        lexeme.IsPrefixSearch == IsPrefixSearch;
+    public override bool Equals(NpgsqlTsQuery? other)
+        => other is NpgsqlTsQueryLexeme lexeme &&
+           lexeme.Text == Text &&
+           lexeme.Weights == Weights &&
+           lexeme.IsPrefixSearch == IsPrefixSearch;
 
     /// <inheritdoc/>
-    public override int GetHashCode() =>
-        HashCode.Combine(Text, Weights, IsPrefixSearch);
+    public override int GetHashCode()
+        => HashCode.Combine(Text, Weights, IsPrefixSearch);
 }
 
 /// <summary>
@@ -533,9 +531,7 @@ public sealed class NpgsqlTsQueryNot : NpgsqlTsQuery
     /// <param name="child"></param>
     public NpgsqlTsQueryNot(NpgsqlTsQuery child)
         : base(NodeKind.Not)
-    {
-        Child = child;
-    }
+        => Child = child;
 
     internal override void WriteCore(StringBuilder sb, bool first = false)
     {
@@ -555,13 +551,12 @@ public sealed class NpgsqlTsQueryNot : NpgsqlTsQuery
     }
 
     /// <inheritdoc/>
-    public override bool Equals(NpgsqlTsQuery? other) =>
-        other is NpgsqlTsQueryNot not &&
-        not.Child == Child;
+    public override bool Equals(NpgsqlTsQuery? other)
+        => other is NpgsqlTsQueryNot not && not.Child == Child;
 
     /// <inheritdoc/>
-    public override int GetHashCode() =>
-        Child?.GetHashCode() ?? 0;
+    public override int GetHashCode()
+        => Child?.GetHashCode() ?? 0;
 }
 
 /// <summary>
@@ -611,14 +606,12 @@ public sealed class NpgsqlTsQueryAnd : NpgsqlTsQueryBinOp
     }
 
     /// <inheritdoc/>
-    public override bool Equals(NpgsqlTsQuery? other) =>
-        other is NpgsqlTsQueryAnd and &&
-        and.Left == Left &&
-        and.Right == Right;
+    public override bool Equals(NpgsqlTsQuery? other)
+        => other is NpgsqlTsQueryAnd and && and.Left == Left && and.Right == Right;
 
     /// <inheritdoc/>
-    public override int GetHashCode() =>
-        HashCode.Combine(Left, Right);
+    public override int GetHashCode()
+        => HashCode.Combine(Left, Right);
 }
 
 /// <summary>
@@ -649,14 +642,12 @@ public sealed class NpgsqlTsQueryOr : NpgsqlTsQueryBinOp
     }
 
     /// <inheritdoc/>
-    public override bool Equals(NpgsqlTsQuery? other) =>
-        other is NpgsqlTsQueryOr or &&
-        or.Left == Left &&
-        or.Right == Right;
+    public override bool Equals(NpgsqlTsQuery? other)
+        => other is NpgsqlTsQueryOr or && or.Left == Left && or.Right == Right;
 
     /// <inheritdoc/>
-    public override int GetHashCode() =>
-        HashCode.Combine(Left, Right);
+    public override int GetHashCode()
+        => HashCode.Combine(Left, Right);
 }
 
 /// <summary>
@@ -667,7 +658,7 @@ public sealed class NpgsqlTsQueryFollowedBy : NpgsqlTsQueryBinOp
     /// <summary>
     /// The distance between the 2 nodes, in lexemes.
     /// </summary>
-    public int Distance { get; set; }
+    public short Distance { get; set; }
 
     /// <summary>
     /// Creates a "followed by" operator, specifying 2 child nodes and the
@@ -678,12 +669,11 @@ public sealed class NpgsqlTsQueryFollowedBy : NpgsqlTsQueryBinOp
     /// <param name="right"></param>
     public NpgsqlTsQueryFollowedBy(
         NpgsqlTsQuery left,
-        int distance,
+        short distance,
         NpgsqlTsQuery right)
         : base(NodeKind.Phrase, left, right)
     {
-        if (distance < 0)
-            throw new ArgumentOutOfRangeException(nameof(distance));
+        ArgumentOutOfRangeException.ThrowIfNegative(distance);
 
         Distance = distance;
     }
@@ -708,19 +698,19 @@ public sealed class NpgsqlTsQueryFollowedBy : NpgsqlTsQueryBinOp
     }
 
     /// <inheritdoc/>
-    public override bool Equals(NpgsqlTsQuery? other) =>
-        other is NpgsqlTsQueryFollowedBy followedBy &&
-        followedBy.Left == Left &&
-        followedBy.Right == Right &&
-        followedBy.Distance == Distance;
+    public override bool Equals(NpgsqlTsQuery? other)
+        => other is NpgsqlTsQueryFollowedBy followedBy &&
+           followedBy.Left == Left &&
+           followedBy.Right == Right &&
+           followedBy.Distance == Distance;
 
     /// <inheritdoc/>
-    public override int GetHashCode() =>
-        HashCode.Combine(Left, Right, Distance);
+    public override int GetHashCode()
+        => HashCode.Combine(Left, Right, Distance);
 }
 
 /// <summary>
-/// Represents an empty tsquery. Shold only be used as top node.
+/// Represents an empty tsquery. Should only be used as top node.
 /// </summary>
 public sealed class NpgsqlTsQueryEmpty : NpgsqlTsQuery
 {
@@ -732,10 +722,10 @@ public sealed class NpgsqlTsQueryEmpty : NpgsqlTsQuery
     internal override void WriteCore(StringBuilder sb, bool first = false) { }
 
     /// <inheritdoc/>
-    public override bool Equals(NpgsqlTsQuery? other) =>
-        other is NpgsqlTsQueryEmpty;
+    public override bool Equals(NpgsqlTsQuery? other)
+        => other is NpgsqlTsQueryEmpty;
 
     /// <inheritdoc/>
-    public override int GetHashCode() =>
-        Kind.GetHashCode();
+    public override int GetHashCode()
+        => Kind.GetHashCode();
 }

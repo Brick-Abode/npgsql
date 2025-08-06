@@ -6,10 +6,7 @@ using System.ComponentModel;
 using System.Data.Common;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using Npgsql.Internal;
-using Npgsql.Netstandard20;
-using Npgsql.Properties;
 using Npgsql.Replication;
 
 namespace Npgsql;
@@ -18,6 +15,10 @@ namespace Npgsql;
 /// Provides a simple way to create and manage the contents of connection strings used by
 /// the <see cref="NpgsqlConnection"/> class.
 /// </summary>
+[UnconditionalSuppressMessage("ReflectionAnalysis", "IL2112:ReflectionToRequiresUnreferencedCode",
+    Justification = "Suppressing the same warnings as suppressed in the base DbConnectionStringBuilder. See https://github.com/dotnet/runtime/issues/97057")]
+[UnconditionalSuppressMessage("ReflectionAnalysis", "IL2113:ReflectionToRequiresUnreferencedCode",
+    Justification = "Suppressing the same warnings as suppressed in the base DbConnectionStringBuilder. See https://github.com/dotnet/runtime/issues/97057")]
 public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBuilder, IDictionary<string, object?>
 {
     #region Fields
@@ -27,9 +28,9 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     /// </summary>
     string? _dataSourceCached;
 
-    internal string DataSourceCached
-        => _dataSourceCached ??= _host is null
-            ? string.Empty
+    internal string? DataSourceCached
+        => _dataSourceCached ??= _host is null || _host.Contains(",")
+            ? null
             : IsUnixSocket(_host, _port, out var socketPath, replaceForAbstract: false)
                 ? socketPath
                 : $"tcp://{_host}:{_port}";
@@ -65,6 +66,19 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     // Method fake-returns an int only to make sure it's code-generated
     private partial int Init();
 
+    /// <summary>
+    /// GeneratedAction and GeneratedActions exist to be able to produce a streamlined binary footprint for NativeAOT.
+    /// An idiomatic approach where each action has its own method would double the binary size of NpgsqlConnectionStringBuilder.
+    /// </summary>
+    enum GeneratedAction
+    {
+        Set,
+        Get,
+        Remove,
+        GetCanonical
+    }
+    private partial bool GeneratedActions(GeneratedAction action, string keyword, ref object? value);
+
     #endregion
 
     #region Non-static property handling
@@ -93,7 +107,8 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
 
             try
             {
-                GeneratedSetter(keyword.ToUpperInvariant(), value);
+                var val = value;
+                GeneratedActions(GeneratedAction.Set, keyword.ToUpperInvariant(), ref val);
             }
             catch (Exception e)
             {
@@ -101,9 +116,6 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
             }
         }
     }
-
-    // Method fake-returns an int only to make sure it's code-generated
-    private partial int GeneratedSetter(string keyword, object? value);
 
     object? IDictionary<string, object?>.this[string keyword]
     {
@@ -127,9 +139,10 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     /// <param name="keyword">The key of the key/value pair to be removed from the connection string in this DbConnectionStringBuilder.</param>
     /// <returns><b>true</b> if the key existed within the connection string and was removed; <b>false</b> if the key did not exist.</returns>
     public override bool Remove(string keyword)
-        => RemoveGenerated(keyword.ToUpperInvariant());
-
-    private partial bool RemoveGenerated(string keyword);
+    {
+        object? value = null;
+        return GeneratedActions(GeneratedAction.Remove, keyword.ToUpperInvariant(), ref value);
+    }
 
     /// <summary>
     /// Removes the entry from the DbConnectionStringBuilder instance.
@@ -145,7 +158,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     public override void Clear()
     {
         Debug.Assert(Keys != null);
-        foreach (var k in Keys.ToArray())
+        foreach (var k in (string[])Keys)
             Remove(k);
     }
 
@@ -155,11 +168,10 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     /// <param name="keyword">The key to locate in the <see cref="NpgsqlConnectionStringBuilder"/>.</param>
     /// <returns><b>true</b> if the <see cref="NpgsqlConnectionStringBuilder"/> contains an entry with the specified key; otherwise <b>false</b>.</returns>
     public override bool ContainsKey(string keyword)
-        => keyword is null
-            ? throw new ArgumentNullException(nameof(keyword))
-            : ContainsKeyGenerated(keyword.ToUpperInvariant());
-
-    private partial bool ContainsKeyGenerated(string keyword);
+    {
+        object? value = null;
+        return GeneratedActions(GeneratedAction.GetCanonical, (keyword ?? throw new ArgumentNullException(nameof(keyword))).ToUpperInvariant(), ref value);
+    }
 
     /// <summary>
     /// Determines whether the <see cref="NpgsqlConnectionStringBuilder"/> contains a specific key-value pair.
@@ -178,24 +190,23 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     /// <returns><b>true</b> if keyword was found within the connection string, <b>false</b> otherwise.</returns>
     public override bool TryGetValue(string keyword, [NotNullWhen(true)] out object? value)
     {
-        if (keyword == null)
-            throw new ArgumentNullException(nameof(keyword));
-
-        return TryGetValueGenerated(keyword.ToUpperInvariant(), out value);
+        object? v = null;
+        var result = GeneratedActions(GeneratedAction.Get, (keyword ?? throw new ArgumentNullException(nameof(keyword))).ToUpperInvariant(), ref v);
+        value = v;
+        return result;
     }
-
-    private partial bool TryGetValueGenerated(string keyword, [NotNullWhen(true)] out object? value);
 
     void SetValue(string propertyName, object? value)
     {
-        var canonicalKeyword = ToCanonicalKeyword(propertyName.ToUpperInvariant());
+        object? canonicalKeyword = null;
+        var result = GeneratedActions(GeneratedAction.GetCanonical, (propertyName ?? throw new ArgumentNullException(nameof(propertyName))).ToUpperInvariant(), ref canonicalKeyword);
+        if (!result)
+            throw new KeyNotFoundException();
         if (value == null)
-            base.Remove(canonicalKeyword);
+            base.Remove((string)canonicalKeyword!);
         else
-            base[canonicalKeyword] = value;
+            base[(string)canonicalKeyword!] = value;
     }
-
-    private partial string ToCanonicalKeyword(string keyword);
 
     #endregion
 
@@ -233,8 +244,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _port;
         set
         {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "Invalid port: " + value);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
 
             _port = value;
             SetValue(nameof(Port), value);
@@ -262,10 +272,10 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     string? _database;
 
     /// <summary>
-    /// The username to connect with. Not required if using GSS/SSPI/Kerberos.
+    /// The username to connect with.
     /// </summary>
     [Category("Connection")]
-    [Description("The username to connect with. Not required if using IntegratedSecurity.")]
+    [Description("The username to connect with.")]
     [DisplayName("Username")]
     [NpgsqlConnectionStringProperty("User Name", "UserId", "User Id", "UID")]
     public string? Username
@@ -280,10 +290,10 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     string? _username;
 
     /// <summary>
-    /// The password to connect with. Not required if using GSS/SSPI/Kerberos.
+    /// The password to connect with.
     /// </summary>
     [Category("Connection")]
-    [Description("The password to connect with. Not required if using IntegratedSecurity.")]
+    [Description("The password to connect with.")]
     [PasswordPropertyText(true)]
     [DisplayName("Password")]
     [NpgsqlConnectionStringProperty("PSW", "PWD")]
@@ -451,22 +461,23 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     SslMode _sslMode;
 
     /// <summary>
-    /// Whether to trust the server certificate without validating it.
+    /// Controls how SSL encryption is negotiated with the server, if SSL is used.
     /// </summary>
     [Category("Security")]
-    [Description("Whether to trust the server certificate without validating it.")]
-    [DisplayName("Trust Server Certificate")]
+    [Description("Controls how SSL encryption is negotiated with the server, if SSL is used.")]
+    [DisplayName("SSL Negotiation")]
     [NpgsqlConnectionStringProperty]
-    public bool TrustServerCertificate
+    public SslNegotiation SslNegotiation
     {
-        get => _trustServerCertificate;
+        get => UserProvidedSslNegotiation ?? SslNegotiation.Postgres;
         set
         {
-            _trustServerCertificate = value;
-            SetValue(nameof(TrustServerCertificate), value);
+            UserProvidedSslNegotiation = value;
+            SetValue(nameof(SslNegotiation), value);
         }
     }
-    bool _trustServerCertificate;
+
+    internal SslNegotiation? UserProvidedSslNegotiation { get; private set; }
 
     /// <summary>
     /// Location of a client certificate to be sent to the server.
@@ -653,6 +664,25 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     }
     bool _includeErrorDetail;
 
+    /// <summary>
+    /// Controls whether channel binding is required, disabled or preferred, depending on server support.
+    /// </summary>
+    [Category("Security")]
+    [Description("Controls whether channel binding is required, disabled or preferred, depending on server support.")]
+    [DisplayName("Channel Binding")]
+    [DefaultValue(ChannelBinding.Prefer)]
+    [NpgsqlConnectionStringProperty]
+    public ChannelBinding ChannelBinding
+    {
+        get => _channelBinding;
+        set
+        {
+            _channelBinding = value;
+            SetValue(nameof(ChannelBinding), value);
+        }
+    }
+    ChannelBinding _channelBinding;
+
     #endregion
 
     #region Properties - Pooling
@@ -689,8 +719,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _minPoolSize;
         set
         {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "MinPoolSize can't be negative");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
 
             _minPoolSize = value;
             SetValue(nameof(MinPoolSize), value);
@@ -711,8 +740,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _maxPoolSize;
         set
         {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "MaxPoolSize can't be negative");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
 
             _maxPoolSize = value;
             SetValue(nameof(MaxPoolSize), value);
@@ -765,13 +793,17 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     /// <summary>
     /// The total maximum lifetime of connections (in seconds). Connections which have exceeded this value will be
     /// destroyed instead of returned from the pool. This is useful in clustered configurations to force load
-    /// balancing between a running server and a server just brought online.
+    /// balancing between a running server and a server just brought online. It can also be useful to prevent
+    /// runaway memory growth of connections at the PostgreSQL server side, because in some cases very long lived
+    /// connections slowly consume more and more memory over time.
+    /// Defaults to 3600 seconds (1 hour).
     /// </summary>
-    /// <value>The time (in seconds) to wait, or 0 to to make connections last indefinitely (the default).</value>
+    /// <value>The time (in seconds) to wait, or 0 to to make connections last indefinitely.</value>
     [Category("Pooling")]
     [Description("The total maximum lifetime of connections (in seconds).")]
     [DisplayName("Connection Lifetime")]
     [NpgsqlConnectionStringProperty("Load Balance Timeout")]
+    [DefaultValue(3600)]
     public int ConnectionLifetime
     {
         get => _connectionLifetime;
@@ -801,8 +833,8 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _timeout;
         set
         {
-            if (value < 0 || value > NpgsqlConnection.TimeoutLimit)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "Timeout must be between 0 and " + NpgsqlConnection.TimeoutLimit);
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, NpgsqlConnection.TimeoutLimit);
 
             _timeout = value;
             SetValue(nameof(Timeout), value);
@@ -826,37 +858,13 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _commandTimeout;
         set
         {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "CommandTimeout can't be negative");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
 
             _commandTimeout = value;
             SetValue(nameof(CommandTimeout), value);
         }
     }
     int _commandTimeout;
-
-    /// <summary>
-    /// The time to wait (in seconds) while trying to execute a an internal command before terminating the attempt and generating an error.
-    /// </summary>
-    [Category("Timeouts")]
-    [Description("The time to wait (in seconds) while trying to execute a an internal command before terminating the attempt and generating an error. -1 uses CommandTimeout, 0 means no timeout.")]
-    [DisplayName("Internal Command Timeout")]
-    [NpgsqlConnectionStringProperty]
-    [DefaultValue(-1)]
-    public int InternalCommandTimeout
-    {
-        get => _internalCommandTimeout;
-        set
-        {
-            if (value != 0 && value != -1 && value < NpgsqlConnector.MinimumInternalCommandTimeout)
-                throw new ArgumentOutOfRangeException(nameof(value), value,
-                    $"InternalCommandTimeout must be >= {NpgsqlConnector.MinimumInternalCommandTimeout}, 0 (infinite) or -1 (use CommandTimeout)");
-
-            _internalCommandTimeout = value;
-            SetValue(nameof(InternalCommandTimeout), value);
-        }
-    }
-    int _internalCommandTimeout;
 
     /// <summary>
     /// The time to wait (in milliseconds) while trying to read a response for a cancellation request for a timed out or cancelled query, before terminating the attempt and generating an error.
@@ -873,8 +881,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _cancellationTimeout;
         set
         {
-            if (value < -1)
-                throw new ArgumentOutOfRangeException(nameof(value), value, $"{nameof(CancellationTimeout)} can't less than -1");
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, -1);
 
             _cancellationTimeout = value;
             SetValue(nameof(CancellationTimeout), value);
@@ -963,8 +970,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _hostRecheckSeconds;
         set
         {
-            if (value < 0)
-                throw new ArgumentException($"{HostRecheckSeconds} cannot be negative", nameof(HostRecheckSeconds));
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
             _hostRecheckSeconds = value;
             SetValue(nameof(HostRecheckSeconds), value);
         }
@@ -972,52 +978,6 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     int _hostRecheckSeconds;
 
     #endregion Properties - Failover and load balancing
-
-    #region Properties - Entity Framework
-
-    /// <summary>
-    /// The database template to specify when creating a database in Entity Framework. If not specified,
-    /// PostgreSQL defaults to "template1".
-    /// </summary>
-    /// <remarks>
-    /// https://www.postgresql.org/docs/current/static/manage-ag-templatedbs.html
-    /// </remarks>
-    [Category("Entity Framework")]
-    [Description("The database template to specify when creating a database in Entity Framework. If not specified, PostgreSQL defaults to \"template1\".")]
-    [DisplayName("EF Template Database")]
-    [NpgsqlConnectionStringProperty]
-    public string? EntityTemplateDatabase
-    {
-        get => _entityTemplateDatabase;
-        set
-        {
-            _entityTemplateDatabase = value;
-            SetValue(nameof(EntityTemplateDatabase), value);
-        }
-    }
-    string? _entityTemplateDatabase;
-
-    /// <summary>
-    /// The database admin to specify when creating and dropping a database in Entity Framework. This is needed because
-    /// Npgsql needs to connect to a database in order to send the create/drop database command.
-    /// If not specified, defaults to "template1". Check NpgsqlServices.UsingPostgresDBConnection for more information.
-    /// </summary>
-    [Category("Entity Framework")]
-    [Description("The database admin to specify when creating and dropping a database in Entity Framework. If not specified, defaults to \"template1\".")]
-    [DisplayName("EF Admin Database")]
-    [NpgsqlConnectionStringProperty]
-    public string? EntityAdminDatabase
-    {
-        get => _entityAdminDatabase;
-        set
-        {
-            _entityAdminDatabase = value;
-            SetValue(nameof(EntityAdminDatabase), value);
-        }
-    }
-    string? _entityAdminDatabase;
-
-    #endregion
 
     #region Properties - Advanced
 
@@ -1034,8 +994,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _keepAlive;
         set
         {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "KeepAlive can't be negative");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
 
             _keepAlive = value;
             SetValue(nameof(KeepAlive), value);
@@ -1075,8 +1034,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _tcpKeepAliveTime;
         set
         {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "TcpKeepAliveTime can't be negative");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
 
             _tcpKeepAliveTime = value;
             SetValue(nameof(TcpKeepAliveTime), value);
@@ -1097,8 +1055,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _tcpKeepAliveInterval;
         set
         {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "TcpKeepAliveInterval can't be negative");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
 
             _tcpKeepAliveInterval = value;
             SetValue(nameof(TcpKeepAliveInterval), value);
@@ -1194,8 +1151,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _maxAutoPrepare;
         set
         {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, $"{nameof(MaxAutoPrepare)} cannot be negative");
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
 
             _maxAutoPrepare = value;
             SetValue(nameof(MaxAutoPrepare), value);
@@ -1217,8 +1173,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         get => _autoPrepareMinUsages;
         set
         {
-            if (value < 1)
-                throw new ArgumentOutOfRangeException(nameof(value), value, $"{nameof(AutoPrepareMinUsages)} must be 1 or greater");
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
 
             _autoPrepareMinUsages = value;
             SetValue(nameof(AutoPrepareMinUsages), value);
@@ -1244,24 +1199,6 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
         }
     }
     bool _noResetOnClose;
-
-    /// <summary>
-    /// Load table composite type definitions, and not just free-standing composite types.
-    /// </summary>
-    [Category("Advanced")]
-    [Description("Load table composite type definitions, and not just free-standing composite types.")]
-    [DisplayName("Load Table Composites")]
-    [NpgsqlConnectionStringProperty]
-    public bool LoadTableComposites
-    {
-        get => _loadTableComposites;
-        set
-        {
-            _loadTableComposites = value;
-            SetValue(nameof(LoadTableComposites), value);
-        }
-    }
-    bool _loadTableComposites;
 
     /// <summary>
     /// Set the replication mode of the connection
@@ -1370,7 +1307,26 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
 
     #endregion
 
-    #region Properties - Compatibility
+    #region Properties - Obsolete
+
+    /// <summary>
+    /// Load table composite type definitions, and not just free-standing composite types.
+    /// </summary>
+    [Category("Advanced")]
+    [Description("Load table composite type definitions, and not just free-standing composite types.")]
+    [DisplayName("Load Table Composites")]
+    [NpgsqlConnectionStringProperty]
+    [Obsolete("Specifying type loading options through the connection string is obsolete, use the DataSource builder instead. See the 9.0 release notes for more information.")]
+    public bool LoadTableComposites
+    {
+        get => _loadTableComposites;
+        set
+        {
+            _loadTableComposites = value;
+            SetValue(nameof(LoadTableComposites), value);
+        }
+    }
+    bool _loadTableComposites;
 
     /// <summary>
     /// A compatibility mode for special PostgreSQL server types.
@@ -1379,9 +1335,11 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     [Description("A compatibility mode for special PostgreSQL server types.")]
     [DisplayName("Server Compatibility Mode")]
     [NpgsqlConnectionStringProperty]
+    [Obsolete("Specifying type loading options through the connection string is obsolete, use the DataSource builder instead. See the 9.0 release notes for more information.")]
     public ServerCompatibilityMode ServerCompatibilityMode
     {
-        get => _serverCompatibilityMode;
+        // Physical replication connections don't allow regular queries, so we can't load types from PG
+        get => ReplicationMode is ReplicationMode.Physical ? ServerCompatibilityMode.NoTypeLoading : _serverCompatibilityMode;
         set
         {
             _serverCompatibilityMode = value;
@@ -1390,169 +1348,48 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     }
     ServerCompatibilityMode _serverCompatibilityMode;
 
-    #endregion
-
-    #region Properties - Obsolete
-
     /// <summary>
-    /// Whether to use Windows integrated security to log in.
+    /// Whether to trust the server certificate without validating it.
     /// </summary>
     [Category("Security")]
-    [Description("Whether to use Windows integrated security to log in.")]
-    [DisplayName("Integrated Security")]
+    [Description("Whether to trust the server certificate without validating it.")]
+    [DisplayName("Trust Server Certificate")]
+    [Obsolete("The TrustServerCertificate parameter is no longer needed and does nothing.")]
     [NpgsqlConnectionStringProperty]
-    [Obsolete("The IntegratedSecurity parameter is no longer needed and does nothing.")]
-    public bool IntegratedSecurity
+    public bool TrustServerCertificate
     {
-        get => _integratedSecurity;
+        get => _trustServerCertificate;
         set
         {
-            _integratedSecurity = value;
-            SetValue(nameof(IntegratedSecurity), value);
+            _trustServerCertificate = value;
+            SetValue(nameof(TrustServerCertificate), value);
         }
     }
-    bool _integratedSecurity;
+    bool _trustServerCertificate;
 
     /// <summary>
-    /// Obsolete, see https://www.npgsql.org/doc/release-notes/6.0.html
-    /// </summary>
-    [Category("Compatibility")]
-    [Description("Makes MaxValue and MinValue timestamps and dates readable as infinity and negative infinity.")]
-    [DisplayName("Convert Infinity DateTime")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("The ConvertInfinityDateTime parameter is no longer supported.")]
-    public bool ConvertInfinityDateTime
-    {
-        get => false;
-        set => throw new NotSupportedException("The Convert Infinity DateTime parameter is no longer supported; Npgsql 6.0 and above convert min/max values to Infinity by default. See https://www.npgsql.org/doc/types/datetime.html for more details.");
-    }
-
-    /// <summary>
-    /// Obsolete, see https://www.npgsql.org/doc/release-notes/3.1.html
+    /// The time to wait (in seconds) while trying to execute a an internal command before terminating the attempt and generating an error.
     /// </summary>
     [Category("Obsolete")]
-    [Description("Obsolete, see https://www.npgsql.org/doc/release-notes/3.1.html")]
-    [DisplayName("Continuous Processing")]
+    [Description("The time to wait (in seconds) while trying to execute a an internal command before terminating the attempt and generating an error. -1 uses CommandTimeout, 0 means no timeout.")]
+    [DisplayName("Internal Command Timeout")]
     [NpgsqlConnectionStringProperty]
-    [Obsolete("The ContinuousProcessing parameter is no longer supported.")]
-    public bool ContinuousProcessing
+    [DefaultValue(-1)]
+    [Obsolete("The InternalCommandTimeout parameter is no longer needed and does nothing.")]
+    public int InternalCommandTimeout
     {
-        get => false;
-        set => throw new NotSupportedException("The ContinuousProcessing parameter is no longer supported. Please see https://www.npgsql.org/doc/release-notes/3.1.html");
-    }
+        get => _internalCommandTimeout;
+        set
+        {
+            if (value != 0 && value != -1 && value < NpgsqlConnector.MinimumInternalCommandTimeout)
+                throw new ArgumentOutOfRangeException(nameof(value), value,
+                    $"InternalCommandTimeout must be >= {NpgsqlConnector.MinimumInternalCommandTimeout}, 0 (infinite) or -1 (use CommandTimeout)");
 
-    /// <summary>
-    /// Obsolete, see https://www.npgsql.org/doc/release-notes/3.1.html
-    /// </summary>
-    [Category("Obsolete")]
-    [Description("Obsolete, see https://www.npgsql.org/doc/release-notes/3.1.html")]
-    [DisplayName("Backend Timeouts")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("The BackendTimeouts parameter is no longer supported")]
-    public bool BackendTimeouts
-    {
-        get => false;
-        set => throw new NotSupportedException("The BackendTimeouts parameter is no longer supported. Please see https://www.npgsql.org/doc/release-notes/3.1.html");
+            _internalCommandTimeout = value;
+            SetValue(nameof(InternalCommandTimeout), value);
+        }
     }
-
-    /// <summary>
-    /// Obsolete, see https://www.npgsql.org/doc/release-notes/3.0.html
-    /// </summary>
-    [Category("Obsolete")]
-    [Description("Obsolete, see https://www.npgsql.org/doc/v/3.0.html")]
-    [DisplayName("Preload Reader")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("The PreloadReader parameter is no longer supported")]
-    public bool PreloadReader
-    {
-        get => false;
-        set => throw new NotSupportedException("The PreloadReader parameter is no longer supported. Please see https://www.npgsql.org/doc/release-notes/3.0.html");
-    }
-
-    /// <summary>
-    /// Obsolete, see https://www.npgsql.org/doc/release-notes/3.0.html
-    /// </summary>
-    [Category("Obsolete")]
-    [Description("Obsolete, see https://www.npgsql.org/doc/release-notes/3.0.html")]
-    [DisplayName("Use Extended Types")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("The UseExtendedTypes parameter is no longer supported")]
-    public bool UseExtendedTypes
-    {
-        get => false;
-        set => throw new NotSupportedException("The UseExtendedTypes parameter is no longer supported. Please see https://www.npgsql.org/doc/release-notes/3.0.html");
-    }
-
-    /// <summary>
-    /// Obsolete, see https://www.npgsql.org/doc/release-notes/4.1.html
-    /// </summary>
-    [Category("Obsolete")]
-    [Description("Obsolete, see https://www.npgsql.org/doc/release-notes/4.1.html")]
-    [DisplayName("Use Ssl Stream")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("The UseSslStream parameter is no longer supported (always true)")]
-    public bool UseSslStream
-    {
-        get => true;
-        set => throw new NotSupportedException("The UseSslStream parameter is no longer supported (SslStream is always used). Please see https://www.npgsql.org/doc/release-notes/4.1.html");
-    }
-
-    /// <summary>
-    /// Writes connection performance information to performance counters.
-    /// </summary>
-    [Category("Obsolete")]
-    [Description("Writes connection performance information to performance counters.")]
-    [DisplayName("Use Perf Counters")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("The UsePerfCounters parameter is no longer supported")]
-    public bool UsePerfCounters
-    {
-        get => false;
-        set => throw new NotSupportedException("The UsePerfCounters parameter is no longer supported. Please see https://www.npgsql.org/doc/release-notes/5.0.html");
-    }
-
-    /// <summary>
-    /// Location of a client certificate to be sent to the server.
-    /// </summary>
-    [Category("Obsolete")]
-    [Description("Location of a client certificate to be sent to the server.")]
-    [DisplayName("Client Certificate")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("Use NpgsqlConnectionStringBuilder.SslKey instead")]
-    public string? ClientCertificate
-    {
-        get => SslKey;
-        set => SslKey = value;
-    }
-
-    /// <summary>
-    /// Key for a client certificate to be sent to the server.
-    /// </summary>
-    [Category("Obsolete")]
-    [Description("Key for a client certificate to be sent to the server.")]
-    [DisplayName("Client Certificate Key")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("Use NpgsqlConnectionStringBuilder.SslPassword instead")]
-    public string? ClientCertificateKey
-    {
-        get => SslPassword;
-        set => SslPassword = value;
-    }
-
-    /// <summary>
-    /// When enabled, PostgreSQL error details are included on <see cref="PostgresException.Detail" /> and
-    /// <see cref="PostgresNotice.Detail" />. These can contain sensitive data.
-    /// </summary>
-    [Category("Obsolete")]
-    [Description("When enabled, PostgreSQL error and notice details are included on PostgresException.Detail and PostgresNotice.Detail. These can contain sensitive data.")]
-    [DisplayName("Include Error Details")]
-    [NpgsqlConnectionStringProperty]
-    [Obsolete("Use NpgsqlConnectionStringBuilder.IncludeErrorDetail instead")]
-    public bool IncludeErrorDetails
-    {
-        get => IncludeErrorDetail;
-        set => IncludeErrorDetail = value;
-    }
+    int _internalCommandTimeout;
 
     #endregion
 
@@ -1560,12 +1397,11 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
 
     internal void PostProcessAndValidate()
     {
-        if (string.IsNullOrWhiteSpace(Host))
-            throw new ArgumentException("Host can't be null");
+        ArgumentException.ThrowIfNullOrWhiteSpace(Host);
         if (Multiplexing && !Pooling)
             throw new ArgumentException("Pooling must be on to use multiplexing");
-        if (TrustServerCertificate && SslMode is SslMode.Allow or SslMode.VerifyCA or SslMode.VerifyFull)
-            throw new ArgumentException(NpgsqlStrings.CannotUseTrustServerCertificate);
+        if (SslNegotiation == SslNegotiation.Direct && SslMode is not SslMode.Require and not SslMode.VerifyCA and not SslMode.VerifyFull)
+            throw new ArgumentException("SSL Mode has to be Require or higher to be used with direct SSL Negotiation");
 
         if (!Host.Contains(','))
         {
@@ -1613,7 +1449,7 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
             var ipv6End = originalHost.LastIndexOf(']');
             if (otherColon == -1 || portSeparator > ipv6End && otherColon < ipv6End)
             {
-                port = originalHost.Slice(portSeparator + 1).ParseInt();
+                port = int.Parse(originalHost.Slice(portSeparator + 1));
                 host = originalHost.Slice(0, portSeparator).ToString();
                 return true;
             }
@@ -1667,12 +1503,32 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     /// <summary>
     /// Gets an <see cref="ICollection" /> containing the keys of the <see cref="NpgsqlConnectionStringBuilder"/>.
     /// </summary>
-    public new ICollection<string> Keys => base.Keys.Cast<string>().ToArray()!;
+    public new ICollection<string> Keys
+    {
+        get
+        {
+            var result = new string[base.Keys.Count];
+            var i = 0;
+            foreach (var key in base.Keys)
+                result[i++] = (string)key;
+            return result;
+        }
+    }
 
     /// <summary>
     /// Gets an <see cref="ICollection" /> containing the values in the <see cref="NpgsqlConnectionStringBuilder"/>.
     /// </summary>
-    public new ICollection<object?> Values => base.Values.Cast<object?>().ToArray();
+    public new ICollection<object?> Values
+    {
+        get
+        {
+            var result = new object?[base.Keys.Count];
+            var i = 0;
+            foreach (var key in base.Values)
+                result[i++] = (object?)key;
+            return result;
+        }
+    }
 
     /// <summary>
     /// Copies the elements of the <see cref="NpgsqlConnectionStringBuilder"/> to an Array, starting at a particular Array index.
@@ -1705,19 +1561,22 @@ public sealed partial class NpgsqlConnectionStringBuilder : DbConnectionStringBu
     #region ICustomTypeDescriptor
 
     /// <inheritdoc />
+    [RequiresUnreferencedCode("PropertyDescriptor's PropertyType cannot be statically discovered.")]
     protected override void GetProperties(Hashtable propertyDescriptors)
     {
         // Tweak which properties are exposed via TypeDescriptor. This affects the VS DDEX
         // provider, for example.
         base.GetProperties(propertyDescriptors);
 
-        var toRemove = propertyDescriptors.Values
-            .Cast<PropertyDescriptor>()
-            .Where(d =>
-                !d.Attributes.Cast<Attribute>().Any(a => a is NpgsqlConnectionStringPropertyAttribute) ||
-                d.Attributes.Cast<Attribute>().Any(a => a is ObsoleteAttribute)
-            )
-            .ToList();
+        var toRemove = new List<PropertyDescriptor>();
+        foreach (var value in propertyDescriptors.Values)
+        {
+            var d = (PropertyDescriptor)value;
+            foreach (var attribute in d.Attributes)
+                if (attribute is NpgsqlConnectionStringPropertyAttribute or ObsoleteAttribute)
+                    toRemove.Add(d);
+        }
+
         foreach (var o in toRemove)
             propertyDescriptors.Remove(o.DisplayName);
     }
@@ -1743,7 +1602,7 @@ sealed class NpgsqlConnectionStringPropertyAttribute : Attribute
     /// Creates a <see cref="NpgsqlConnectionStringPropertyAttribute"/>.
     /// </summary>
     public NpgsqlConnectionStringPropertyAttribute()
-        => Synonyms = Array.Empty<string>();
+        => Synonyms = [];
 
     /// <summary>
     /// Creates a <see cref="NpgsqlConnectionStringPropertyAttribute"/>.
@@ -1755,26 +1614,6 @@ sealed class NpgsqlConnectionStringPropertyAttribute : Attribute
 #endregion
 
 #region Enums
-
-/// <summary>
-/// An option specified in the connection string that activates special compatibility features.
-/// </summary>
-public enum ServerCompatibilityMode
-{
-    /// <summary>
-    /// No special server compatibility mode is active
-    /// </summary>
-    None,
-    /// <summary>
-    /// The server is an Amazon Redshift instance.
-    /// </summary>
-    Redshift,
-    /// <summary>
-    /// The server is doesn't support full type loading from the PostgreSQL catalogs, support the basic set
-    /// of types via information hardcoded inside Npgsql.
-    /// </summary>
-    NoTypeLoading,
-}
 
 /// <summary>
 /// Specifies how to manage SSL.
@@ -1805,6 +1644,40 @@ public enum SslMode
     /// Fail the connection if the server doesn't support SSL. Also verifies server certificate with host's name.
     /// </summary>
     VerifyFull
+}
+
+/// <summary>
+/// Specifies how to initialize SSL session.
+/// </summary>
+public enum SslNegotiation
+{
+    /// <summary>
+    /// Perform PostgreSQL protocol negotiation.
+    /// </summary>
+    Postgres,
+    /// <summary>
+    /// Start SSL handshake directly after establishing the TCP/IP connection.
+    /// </summary>
+    Direct
+}
+
+/// <summary>
+/// Specifies how to manage channel binding.
+/// </summary>
+public enum ChannelBinding
+{
+    /// <summary>
+    /// Channel binding is disabled. If the server requires channel binding, the connection will fail.
+    /// </summary>
+    Disable,
+    /// <summary>
+    /// Prefer channel binding if the server allows it, but connect without it if not.
+    /// </summary>
+    Prefer,
+    /// <summary>
+    /// Fail the connection if the server doesn't support channel binding.
+    /// </summary>
+    Require
 }
 
 /// <summary>

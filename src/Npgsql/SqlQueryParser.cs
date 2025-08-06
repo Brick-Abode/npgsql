@@ -7,7 +7,9 @@ namespace Npgsql;
 
 sealed class SqlQueryParser
 {
-    readonly Dictionary<string, int> _paramIndexMap = new();
+    static NpgsqlParameterCollection EmptyParameters { get; } = [];
+
+    readonly Dictionary<string, int> _paramIndexMap = new(StringComparer.OrdinalIgnoreCase);
     readonly StringBuilder _rewrittenSql = new();
 
     /// <summary>
@@ -70,7 +72,7 @@ sealed class SqlQueryParser
             // Batching mode. We're processing only one batch - if we encounter a semicolon (legacy batching), that's an error.
             Debug.Assert(batchCommand is not null);
             sql = batchCommand.CommandText;
-            parameters = batchCommand.Parameters;
+            parameters = batchCommand._parameters ?? EmptyParameters;
             batchCommands = null;
         }
         else
@@ -78,7 +80,7 @@ sealed class SqlQueryParser
             // Command mode. Semicolons (legacy batching) may occur.
             Debug.Assert(batchCommand is null);
             sql = command.CommandText;
-            parameters = command.Parameters;
+            parameters = command._parameters ?? EmptyParameters;
             batchCommands = command.InternalBatchCommands;
             MoveToNextBatchCommand();
         }
@@ -207,7 +209,7 @@ sealed class SqlQueryParser
                     }
 
                     if (!parameter.IsInputDirection)
-                        throw new Exception($"Parameter '{paramName}' referenced in SQL but is an out-only parameter");
+                        ThrowHelper.ThrowInvalidOperationException("Parameter '{0}' referenced in SQL but is an out-only parameter", paramName);
 
                     batchCommand.PositionalParameters.Add(parameter);
                     index = _paramIndexMap[paramName] = batchCommand.PositionalParameters.Count;
@@ -466,9 +468,8 @@ sealed class SqlQueryParser
 
             if (command is null)
             {
-                throw new NotSupportedException(
-                    $"Specifying multiple SQL statements in a single {nameof(NpgsqlBatchCommand)} isn't supported, " +
-                    "please remove all semicolons.");
+                ThrowHelper.ThrowNotSupportedException($"Specifying multiple SQL statements in a single {nameof(NpgsqlBatchCommand)} isn't supported, " +
+                                                       "please remove all semicolons.");
             }
 
             statementIndex++;
@@ -485,7 +486,11 @@ sealed class SqlQueryParser
 
         Finish:
         _rewrittenSql.Append(sql, currTokenBeg, end - currTokenBeg);
-        batchCommand.FinalCommandText = _rewrittenSql.ToString();
+        if (statementIndex is 0 && _paramIndexMap.Count is 0)
+            // Single statement, no parameters, no rewriting necessary
+            batchCommand.FinalCommandText = sql;
+        else
+            batchCommand.FinalCommandText = _rewrittenSql.ToString();
         if (batchCommands is not null && batchCommands.Count > statementIndex + 1)
             batchCommands.RemoveRange(statementIndex + 1, batchCommands.Count - (statementIndex + 1));
 
@@ -496,10 +501,11 @@ sealed class SqlQueryParser
             {
                 batchCommand = batchCommands[statementIndex];
                 batchCommand.Reset();
+                batchCommand._parameters = parameters;
             }
             else
             {
-                batchCommand = new NpgsqlBatchCommand();
+                batchCommand = new NpgsqlBatchCommand { _parameters = parameters };
                 batchCommands.Add(batchCommand);
             }
         }

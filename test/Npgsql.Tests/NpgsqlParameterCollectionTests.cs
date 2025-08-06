@@ -7,9 +7,11 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Npgsql.Tests;
 
-[NonParallelizable] // This test class has global effects on case sensitive matching in param collection.
 [TestFixture(CompatMode.OnePass)]
+#if DEBUG
 [TestFixture(CompatMode.TwoPass)]
+[NonParallelizable] // This test class has global effects on case sensitive matching in param collection.
+#endif
 public class NpgsqlParameterCollectionTests
 {
     readonly CompatMode _compatMode;
@@ -223,6 +225,15 @@ public class NpgsqlParameterCollectionTests
             parameters.Add(new NpgsqlParameter(NpgsqlParameter.PositionalName, i));
 
         Assert.That(command.Parameters.IndexOf(""), Is.EqualTo(0));
+    }
+
+    [Test]
+    public void Throw_multiple_positions_same_instance()
+    {
+        using var cmd = new NpgsqlCommand("SELECT $1, $2");
+        var p = new NpgsqlParameter("", "Hello world");
+        cmd.Parameters.Add(p);
+        Assert.Throws<InvalidOperationException>(() => cmd.Parameters.Add(p));
     }
 
     [Test]

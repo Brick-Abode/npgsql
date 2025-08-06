@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Npgsql.PostgresTypes;
 using NpgsqlTypes;
 using NUnit.Framework;
-using static Npgsql.Util.Statics;
 using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests;
@@ -144,6 +143,25 @@ $$ LANGUAGE plpgsql");
         Assert.That(command.Parameters["c"].Value, Is.EqualTo(-1));
     }
 
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5793")]
+    public async Task ReturnValue_parameter_ignored()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var funcName = await GetTempFunctionName(conn);
+        await conn.ExecuteNonQueryAsync(@$"CREATE FUNCTION {funcName}() RETURNS integer AS 'SELECT 8;' LANGUAGE 'sql'");
+        await using var cmd = new NpgsqlCommand(funcName, conn) { CommandType = CommandType.StoredProcedure };
+        var param = new NpgsqlParameter
+        {
+            ParameterName = "@ReturnValue",
+            NpgsqlDbType = NpgsqlDbType.Integer,
+            Direction = ParameterDirection.ReturnValue,
+            Value = 0
+        };
+        cmd.Parameters.Add(param);
+        Assert.That(cmd.ExecuteScalar(), Is.EqualTo(8));
+        Assert.That(param.Value, Is.EqualTo(0));
+    }
+
     [Test]
     public async Task CommandBehavior_SchemaOnly_support_function_call()
     {
@@ -157,6 +175,32 @@ $$ LANGUAGE plpgsql");
         while (dr.Read())
             i++;
         Assert.AreEqual(0, i);
+    }
+
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5820")]
+    public async Task Output_param_cast_error()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var function = await GetTempFunctionName(conn);
+        await conn.ExecuteNonQueryAsync(@$"
+CREATE FUNCTION {function} (INOUT param_in int4, OUT param_out interval) AS $$
+BEGIN
+    param_out = interval '5 years';
+END
+$$ LANGUAGE plpgsql");
+        await using var cmd = new NpgsqlCommand(function, conn);
+        cmd.CommandType = CommandType.StoredProcedure;
+        cmd.Parameters.Add(new NpgsqlParameter("param_in", DbType.Int32)
+        {
+            Direction = ParameterDirection.InputOutput,
+            Value = 1
+        });
+        cmd.Parameters.Add(new NpgsqlParameter("param_out", NpgsqlDbType.Interval)
+        {
+            Direction = ParameterDirection.Output
+        });
+        Assert.ThrowsAsync<InvalidCastException>(cmd.ExecuteNonQueryAsync);
+        Assert.DoesNotThrowAsync(async () => await conn.ExecuteNonQueryAsync("SELECT 1"));
     }
 
     #region DeriveParameters

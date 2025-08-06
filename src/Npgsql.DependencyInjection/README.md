@@ -42,6 +42,39 @@ app.MapGet("/", async (NpgsqlDataSource dataSource) =>
 });
 ```
 
-Finally, the `AddNpgsqlDataSource` method also accepts a lambda parameter allowing you to configure aspects of Npgsql beyond the connection string.
+The `AddNpgsqlDataSource` method also accepts a lambda parameter allowing you to configure aspects of Npgsql beyond the connection string, e.g. to configure `UseLoggerFactory` and `UseNetTopologySuite`:
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddNpgsqlDataSource(
+    "Host=pg_server;Username=test;Password=test;Database=test",
+    builder => builder
+        .UseLoggerFactory(loggerFactory)
+        .UseNetTopologySuite());
+```
+
+Finally, starting with Npgsql and .NET 8.0, you can now register multiple data sources (and connections), using a service key to distinguish between them:
+
+```c#
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services
+    .AddNpgsqlDataSource("Host=localhost;Database=CustomersDB;Username=test;Password=test", serviceKey: DatabaseType.CustomerDb)
+    .AddNpgsqlDataSource("Host=localhost;Database=OrdersDB;Username=test;Password=test", serviceKey: DatabaseType.OrdersDb);
+
+var app = builder.Build();
+
+app.MapGet("/", async ([FromKeyedServices(DatabaseType.OrdersDb)] NpgsqlConnection connection)
+    => connection.ConnectionString);
+
+app.Run();
+
+enum DatabaseType
+{
+    CustomerDb,
+    OrdersDb
+}
+```
 
 For more information, [see the Npgsql documentation](https://www.npgsql.org/doc/index.html).

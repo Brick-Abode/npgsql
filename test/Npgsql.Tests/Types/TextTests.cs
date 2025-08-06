@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Data;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using NpgsqlTypes;
@@ -14,7 +15,7 @@ namespace Npgsql.Tests.Types;
 /// <remarks>
 /// https://www.postgresql.org/docs/current/static/datatype-character.html
 /// </remarks>
-public class TextTests : MultiplexingTestBase
+public class TextTests(MultiplexingMode multiplexingMode) : MultiplexingTestBase(multiplexingMode)
 {
     [Test]
     public Task Text_as_string()
@@ -53,6 +54,10 @@ public class TextTests : MultiplexingTestBase
     }
 
     [Test]
+    public Task Text_as_MemoryStream()
+        => AssertTypeWrite(() => new MemoryStream("foo"u8.ToArray()), "foo", "text", NpgsqlDbType.Text, DbType.String, isDefault: false);
+
+    [Test]
     public async Task Text_long()
     {
         await using var conn = await OpenConnectionAsync();
@@ -79,6 +84,7 @@ public class TextTests : MultiplexingTestBase
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(data2.Substring(0, 4)));
 
         // NpgsqlParameter.Size larger than the value size should mean the value size, as well as 0 and -1
+        p.Value = data2;
         p.Size = data2.Length + 10;
         Assert.That(await cmd.ExecuteScalarAsync(), Is.EqualTo(data2));
         p.Size = 0;
@@ -143,6 +149,4 @@ public class TextTests : MultiplexingTestBase
             Assert.AreEqual(testArr2[i], arr2[i]);
         }
     }
-
-    public TextTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
 }

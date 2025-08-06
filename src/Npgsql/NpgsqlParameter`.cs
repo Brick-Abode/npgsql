@@ -1,11 +1,11 @@
 ﻿using System;
 using System.Data;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Npgsql.Internal;
-using Npgsql.TypeMapping;
 using NpgsqlTypes;
-using static Npgsql.Util.Statics;
 
 namespace Npgsql;
 
@@ -16,10 +16,23 @@ namespace Npgsql;
 /// <typeparam name="T">The type of the value that will be stored in the parameter.</typeparam>
 public sealed class NpgsqlParameter<T> : NpgsqlParameter
 {
+    T? _typedValue;
+
     /// <summary>
     /// Gets or sets the strongly-typed value of the parameter.
     /// </summary>
-    public T? TypedValue { get; set; }
+    public T? TypedValue
+    {
+        get => _typedValue;
+        set
+        {
+            if (typeof(T) == typeof(object) && ShouldResetObjectTypeInfo(value))
+                ResetTypeInfo();
+            else
+                ResetBindingInfo();
+            _typedValue = value;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the value of the parameter. This delegates to <see cref="TypedValue"/>.
@@ -30,12 +43,14 @@ public sealed class NpgsqlParameter<T> : NpgsqlParameter
         set => TypedValue = (T)value!;
     }
 
+    private protected override Type StaticValueType => typeof(T);
+
     #region Constructors
 
     /// <summary>
     /// Initializes a new instance of <see cref="NpgsqlParameter{T}" />.
     /// </summary>
-    public NpgsqlParameter() {}
+    public NpgsqlParameter() { }
 
     /// <summary>
     /// Initializes a new instance of <see cref="NpgsqlParameter{T}" /> with a parameter name and value.
@@ -66,33 +81,51 @@ public sealed class NpgsqlParameter<T> : NpgsqlParameter
 
     #endregion Constructors
 
-    internal override void ResolveHandler(TypeMapper typeMapper)
+    private protected override PgConverterResolution ResolveConverter(PgTypeInfo typeInfo)
     {
-        if (Handler is not null)
+        if (typeof(T) == typeof(object) || TypeInfo!.IsBoxing)
+            return base.ResolveConverter(typeInfo);
+
+        _asObject = false;
+        return typeInfo.GetResolution(TypedValue);
+    }
+
+    // We ignore allowNullReference, it's just there to control the base implementation.
+    private protected override void BindCore(DataFormat? formatPreference, bool allowNullReference = false)
+    {
+        if (_asObject)
+        {
+            // If we're object typed we should not support null.
+            base.BindCore(formatPreference, typeof(T) != typeof(object));
             return;
+        }
 
-        // TODO: Better exceptions in case of cast failure etc.
-        if (_npgsqlDbType.HasValue)
-            Handler = typeMapper.ResolveByNpgsqlDbType(_npgsqlDbType.Value);
-        else if (_dataTypeName is not null)
-            Handler = typeMapper.ResolveByDataTypeName(_dataTypeName);
+        var value = TypedValue;
+        if (TypeInfo!.Bind(Converter!.UnsafeDowncast<T>(), value, out var size, out _writeState, out var dataFormat, formatPreference) is { } info)
+        {
+            WriteSize = size;
+            _bufferRequirement = info.BufferRequirement;
+        }
         else
-            Handler = typeMapper.ResolveByValue(TypedValue);
+        {
+            WriteSize = -1;
+            _bufferRequirement = default;
+        }
+
+        Format = dataFormat;
     }
 
-    internal override int ValidateAndGetLength()
+    private protected override ValueTask WriteValue(bool async, PgWriter writer, CancellationToken cancellationToken)
     {
-        if (TypedValue is null or DBNull)
-            return 0;
+        if (_asObject)
+            return base.WriteValue(async, writer, cancellationToken);
 
-        var lengthCache = LengthCache;
-        var len = Handler!.ValidateAndGetLength(TypedValue, ref lengthCache, this);
-        LengthCache = lengthCache;
-        return len;
+        if (async)
+            return Converter!.UnsafeDowncast<T>().WriteAsync(writer, TypedValue!, cancellationToken);
+
+        Converter!.UnsafeDowncast<T>().Write(writer, TypedValue!);
+        return new();
     }
-
-    internal override Task WriteWithLength(NpgsqlWriteBuffer buf, bool async, CancellationToken cancellationToken = default)
-        => Handler!.WriteWithLength(TypedValue, buf, LengthCache, this, async, cancellationToken);
 
     private protected override NpgsqlParameter CloneCore() =>
         // use fields instead of properties

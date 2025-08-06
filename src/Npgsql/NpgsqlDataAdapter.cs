@@ -1,6 +1,7 @@
 using System;
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -140,6 +141,7 @@ public sealed class NpgsqlDataAdapter : DbDataAdapter
     }
 
     // Temporary implementation, waiting for official support in System.Data via https://github.com/dotnet/runtime/issues/22109
+    [RequiresUnreferencedCode("Members from serialized types or types used in expressions may be trimmed if not referenced directly.")]
     internal async Task<int> Fill(DataTable dataTable, bool async, CancellationToken cancellationToken = default)
     {
         var command = SelectCommand;
@@ -150,17 +152,17 @@ public sealed class NpgsqlDataAdapter : DbDataAdapter
         {
             originalState = activeConnection.State;
             if (ConnectionState.Closed == originalState)
-                await activeConnection.Open(async, cancellationToken);
+                await activeConnection.Open(async, cancellationToken).ConfigureAwait(false);
 
-            var dataReader = await command.ExecuteReader(CommandBehavior.Default, async, cancellationToken);
+            var dataReader = await command.ExecuteReader(async, CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
             try
             {
-                return await Fill(dataTable, dataReader, async, cancellationToken);
+                return await Fill(dataTable, dataReader, async, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
                 if (async)
-                    await dataReader.DisposeAsync();
+                    await dataReader.DisposeAsync().ConfigureAwait(false);
                 else
                     dataReader.Dispose();
             }
@@ -172,6 +174,7 @@ public sealed class NpgsqlDataAdapter : DbDataAdapter
         }
     }
 
+    [RequiresUnreferencedCode("Members from serialized types or types used in expressions may be trimmed if not referenced directly.")]
     async Task<int> Fill(DataTable dataTable, NpgsqlDataReader dataReader, bool async, CancellationToken cancellationToken = default)
     {
         dataTable.BeginLoadData();
@@ -193,7 +196,7 @@ public sealed class NpgsqlDataAdapter : DbDataAdapter
 
             var values = new object[count];
 
-            while (async ? await dataReader.ReadAsync(cancellationToken) : dataReader.Read())
+            while (async ? await dataReader.ReadAsync(cancellationToken).ConfigureAwait(false) : dataReader.Read())
             {
                 dataReader.GetValues(values);
                 dataTable.LoadDataRow(values, true);
@@ -210,18 +213,18 @@ public sealed class NpgsqlDataAdapter : DbDataAdapter
 
 #pragma warning disable 1591
 
-public class NpgsqlRowUpdatingEventArgs : RowUpdatingEventArgs
-{
-    public NpgsqlRowUpdatingEventArgs(DataRow dataRow, IDbCommand? command, System.Data.StatementType statementType,
-        DataTableMapping tableMapping)
-        : base(dataRow, command, statementType, tableMapping) {}
-}
+public class NpgsqlRowUpdatingEventArgs(
+    DataRow dataRow,
+    IDbCommand? command,
+    System.Data.StatementType statementType,
+    DataTableMapping tableMapping)
+    : RowUpdatingEventArgs(dataRow, command, statementType, tableMapping);
 
-public class NpgsqlRowUpdatedEventArgs : RowUpdatedEventArgs
-{
-    public NpgsqlRowUpdatedEventArgs(DataRow dataRow, IDbCommand? command, System.Data.StatementType statementType,
-        DataTableMapping tableMapping)
-        : base(dataRow, command, statementType, tableMapping) {}
-}
+public class NpgsqlRowUpdatedEventArgs(
+    DataRow dataRow,
+    IDbCommand? command,
+    System.Data.StatementType statementType,
+    DataTableMapping tableMapping)
+    : RowUpdatedEventArgs(dataRow, command, statementType, tableMapping);
 
 #pragma warning restore 1591

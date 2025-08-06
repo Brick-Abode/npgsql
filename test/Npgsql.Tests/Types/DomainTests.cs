@@ -1,11 +1,12 @@
 using System;
 using System.Threading.Tasks;
+using NpgsqlTypes;
 using NUnit.Framework;
 using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests.Types;
 
-public class DomainTests : MultiplexingTestBase
+public class DomainTests(MultiplexingMode multiplexingMode) : MultiplexingTestBase(multiplexingMode)
 {
     [Test, Description("Resolves a domain type handler via the different pathways")]
     public async Task Domain_resolution()
@@ -13,13 +14,8 @@ public class DomainTests : MultiplexingTestBase
         if (IsMultiplexing)
             Assert.Ignore("Multiplexing, ReloadTypes");
 
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            ApplicationName = nameof(Domain_resolution),  // Prevent backend type caching in TypeHandlerRegistry
-            Pooling = false
-        };
-
-        using var conn = await OpenConnectionAsync(csb);
+        await using var dataSource = CreateDataSource(csb => csb.Pooling = false);
+        await using var conn = await dataSource.OpenConnectionAsync();
         var type = await GetTempTypeName(conn);
         await conn.ExecuteNonQueryAsync($"CREATE DOMAIN {type} AS text");
 
@@ -80,5 +76,26 @@ CREATE TYPE {compositeType} AS (value {domainType});");
         public string? Value { get; set; }
     }
 
-    public DomainTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
+    [Test]
+    public async Task Domain_over_range()
+    {
+        await using var adminConnection = await OpenConnectionAsync();
+        var type = await GetTempTypeName(adminConnection);
+        var rangeType = await GetTempTypeName(adminConnection);
+
+        await adminConnection.ExecuteNonQueryAsync($"CREATE DOMAIN {type} AS integer; CREATE TYPE {rangeType} AS RANGE(subtype={type})");
+
+        var dataSourceBuilder = CreateDataSourceBuilder();
+        dataSourceBuilder.EnableUnmappedTypes();
+        await using var dataSource = dataSourceBuilder.Build();
+        await using var connection = await dataSource.OpenConnectionAsync();
+
+        await AssertType(
+            connection,
+            new NpgsqlRange<int>(1, 2),
+            "[1,2]",
+            rangeType,
+            npgsqlDbType: null,
+            isDefaultForWriting: false);
+    }
 }

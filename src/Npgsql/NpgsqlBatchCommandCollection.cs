@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Npgsql;
 
@@ -81,7 +82,7 @@ public class NpgsqlBatchCommandCollection : DbBatchCommandCollection, IList<Npgs
         set => _list[index] = value;
     }
 
-    /// <inheritdoc/>
+    /// <inheritdoc cref="IList{T}.this" />
     public new NpgsqlBatchCommand this[int index]
     {
         get => _list[index];
@@ -97,8 +98,16 @@ public class NpgsqlBatchCommandCollection : DbBatchCommandCollection, IList<Npgs
         => _list[index] = Cast(batchCommand);
 
     static NpgsqlBatchCommand Cast(DbBatchCommand? value)
-        => value is NpgsqlBatchCommand c
-            ? c
-            : throw new InvalidCastException(
-                $"The value \"{value}\" is not of type \"{nameof(NpgsqlBatchCommand)}\" and cannot be used in this batch command collection.");
+    {
+        var castedValue = value as NpgsqlBatchCommand;
+        if (castedValue is null)
+            ThrowInvalidCastException(value);
+
+        return castedValue;
+    }
+
+    [DoesNotReturn]
+    static void ThrowInvalidCastException(DbBatchCommand? value) =>
+        throw new InvalidCastException(
+            $"The value \"{value}\" is not of type \"{nameof(NpgsqlBatchCommand)}\" and cannot be used in this batch command collection.");
 }

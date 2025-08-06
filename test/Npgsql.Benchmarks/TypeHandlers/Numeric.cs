@@ -1,46 +1,29 @@
 ﻿using System.Collections.Generic;
 using BenchmarkDotNet.Attributes;
-using Npgsql.Internal.TypeHandlers.NumericHandlers;
+using Npgsql.Internal.Converters;
 
 namespace Npgsql.Benchmarks.TypeHandlers;
 
 [Config(typeof(Config))]
-public class Int16 : TypeHandlerBenchmarks<short>
-{
-    public Int16() : base(new Int16Handler(GetPostgresType("smallint"))) { }
-}
+public class Int16() : TypeHandlerBenchmarks<short>(new Int2Converter<short>());
 
 [Config(typeof(Config))]
-public class Int32 : TypeHandlerBenchmarks<int>
-{
-    public Int32() : base(new Int32Handler(GetPostgresType("integer"))) { }
-}
+public class Int32() : TypeHandlerBenchmarks<int>(new Int4Converter<int>());
 
 [Config(typeof(Config))]
-public class Int64 : TypeHandlerBenchmarks<long>
-{
-    public Int64() : base(new Int64Handler(GetPostgresType("bigint"))) { }
-}
+public class Int64() : TypeHandlerBenchmarks<long>(new Int8Converter<long>());
 
 [Config(typeof(Config))]
-public class Single : TypeHandlerBenchmarks<float>
-{
-    public Single() : base(new SingleHandler(GetPostgresType("real"))) { }
-}
+public class Single() : TypeHandlerBenchmarks<float>(new RealConverter<float>());
 
 [Config(typeof(Config))]
-public class Double : TypeHandlerBenchmarks<double>
-{
-    public Double() : base(new DoubleHandler(GetPostgresType("double precision"))) { }
-}
+public class Double() : TypeHandlerBenchmarks<double>(new DoubleConverter<double>());
 
 [Config(typeof(Config))]
-public class Numeric : TypeHandlerBenchmarks<decimal>
+public class Numeric() : TypeHandlerBenchmarks<decimal>(new DecimalNumericConverter<decimal>())
 {
-    public Numeric() : base(new NumericHandler(GetPostgresType("numeric"))) { }
-
-    protected override IEnumerable<decimal> ValuesOverride() => new[]
-    {
+    protected override IEnumerable<decimal> ValuesOverride() =>
+    [
         0.0000000000000000000000000001M,
         0.000000000000000000000001M,
         0.00000000000000000001M,
@@ -55,12 +38,9 @@ public class Numeric : TypeHandlerBenchmarks<decimal>
         10000000000000000M,
         100000000000000000000M,
         1000000000000000000000000M,
-        10000000000000000000000000000M,
-    };
+        10000000000000000000000000000M
+    ];
 }
 
 [Config(typeof(Config))]
-public class Money : TypeHandlerBenchmarks<decimal>
-{
-    public Money() : base(new MoneyHandler(GetPostgresType("money"))) { }
-}
+public class Money() : TypeHandlerBenchmarks<decimal>(new MoneyConverter<decimal>());

@@ -1,6 +1,5 @@
 ﻿using NpgsqlTypes;
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Npgsql.Internal;
@@ -18,12 +17,6 @@ public sealed class InsertMessage : TransactionalMessage
     /// The relation for this <see cref="InsertMessage" />.
     /// </summary>
     public RelationMessage Relation { get; private set; } = null!;
-
-    /// <summary>
-    /// ID of the relation corresponding to the ID in the relation message.
-    /// </summary>
-    [Obsolete("Use Relation.RelationId")]
-    public uint RelationId => Relation.RelationId;
 
     /// <summary>
     /// Columns representing the new row.

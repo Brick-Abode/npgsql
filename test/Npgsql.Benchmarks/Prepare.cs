@@ -1,5 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using System.Linq;
+﻿using System.Linq;
 using System.Reflection;
 using System.Text;
 using BenchmarkDotNet.Attributes;
@@ -55,9 +54,7 @@ INSERT INTO table{i} (id, data) VALUES (1, {i});
 
     [GlobalCleanup]
     public void GlobalCleanup()
-    {
-        _conn.Dispose();
-    }
+        => _conn.Dispose();
 
     public Prepare()
     {

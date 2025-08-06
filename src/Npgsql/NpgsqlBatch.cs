@@ -1,3 +1,4 @@
+using System;
 using System.Data;
 using System.Data.Common;
 using System.Threading;
@@ -98,7 +99,8 @@ public class NpgsqlBatch : DbBatch
     /// <param name="transaction">The <see cref="NpgsqlTransaction"/> in which the <see cref="NpgsqlCommand"/> executes.</param>
     public NpgsqlBatch(NpgsqlConnection? connection = null, NpgsqlTransaction? transaction = null)
     {
-        Command = new(DefaultBatchCommandsSize);
+        GC.SuppressFinalize(this);
+        Command = new(this, DefaultBatchCommandsSize);
         BatchCommands = new NpgsqlBatchCommandCollection(Command.InternalBatchCommands);
 
         Connection = connection;
@@ -107,18 +109,23 @@ public class NpgsqlBatch : DbBatch
 
     internal NpgsqlBatch(NpgsqlConnector connector)
     {
-        Command = new(connector, DefaultBatchCommandsSize);
+        GC.SuppressFinalize(this);
+        Command = new(this, connector, DefaultBatchCommandsSize);
         BatchCommands = new NpgsqlBatchCommandCollection(Command.InternalBatchCommands);
     }
 
-    private protected NpgsqlBatch(NpgsqlDataSourceCommand command)
+    private protected NpgsqlBatch(Func<NpgsqlConnection, NpgsqlBatch, NpgsqlCommand> commandFactory, NpgsqlConnection connection)
     {
-        Command = command;
+        GC.SuppressFinalize(this);
+        Command = commandFactory(connection, this);
         BatchCommands = new NpgsqlBatchCommandCollection(Command.InternalBatchCommands);
     }
 
     /// <inheritdoc />
-    protected override DbBatchCommand CreateDbBatchCommand()
+    protected override DbBatchCommand CreateDbBatchCommand() => CreateBatchCommand();
+
+    /// <inheritdoc cref="DbBatch.CreateBatchCommand"/>
+    public new NpgsqlBatchCommand CreateBatchCommand()
         => new NpgsqlBatchCommand();
 
     /// <inheritdoc />
@@ -133,7 +140,7 @@ public class NpgsqlBatch : DbBatch
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(
         CommandBehavior behavior,
         CancellationToken cancellationToken)
-        => await ExecuteReaderAsync(behavior, cancellationToken);
+        => await ExecuteReaderAsync(behavior, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc cref="DbBatch.ExecuteReaderAsync(CancellationToken)"/>
     public new Task<NpgsqlDataReader> ExecuteReaderAsync(CancellationToken cancellationToken = default)
@@ -171,4 +178,26 @@ public class NpgsqlBatch : DbBatch
 
     /// <inheritdoc />
     public override void Cancel() => Command.Cancel();
+
+    /// <inheritdoc />
+    public override void Dispose()
+    {
+        Command.ResetTransaction();
+        if (Command.IsCacheable && Connection is not null && Connection.CachedBatch is null)
+        {
+            BatchCommands.Clear();
+            Command.Reset();
+            Connection.CachedBatch = this;
+            return;
+        }
+
+        Command.IsCacheable = false;
+    }
+
+    internal static NpgsqlBatch CreateCachedBatch(NpgsqlConnection connection)
+    {
+        var batch = new NpgsqlBatch(connection);
+        batch.Command.IsCacheable = true;
+        return batch;
+    }
 }

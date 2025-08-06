@@ -1,7 +1,7 @@
 using System;
 using System.Data;
 using System.Threading.Tasks;
-using Npgsql.TypeMapping;
+using Npgsql.Internal.ResolverFactories;
 using NpgsqlTypes;
 using NUnit.Framework;
 using static Npgsql.Util.Statics;
@@ -20,6 +20,31 @@ public class LegacyDateTimeTests : TestBase
             "timestamp without time zone",
             NpgsqlDbType.Timestamp,
             DbType.DateTime);
+
+    [Test]
+    public async Task Timestamp_read_as_Unspecified_DateTime()
+    {
+        await using var command = DataSource.CreateCommand("SELECT '2020-03-01T10:30:00'::timestamp");
+        var dateTime = (DateTime)(await command.ExecuteScalarAsync())!;
+        Assert.That(dateTime.Kind, Is.EqualTo(DateTimeKind.Unspecified));
+    }
+
+    [Test]
+    public async Task Timestamptz_negative_infinity()
+    {
+        var dto = await AssertType(DateTimeOffset.MinValue, "-infinity", "timestamp with time zone", NpgsqlDbType.TimestampTz,
+            DbType.DateTimeOffset, isDefaultForReading: false);
+        Assert.That(dto.Offset, Is.EqualTo(TimeSpan.Zero));
+    }
+
+    [Test]
+    public async Task Timestamptz_infinity()
+    {
+        var dto = await AssertType(
+            DateTimeOffset.MaxValue, "infinity", "timestamp with time zone", NpgsqlDbType.TimestampTz, DbType.DateTimeOffset,
+            isDefaultForReading: false);
+        Assert.That(dto.Offset, Is.EqualTo(TimeSpan.Zero));
+    }
 
     [Test]
     [TestCase(DateTimeKind.Utc, TestName = "Timestamptz_write_utc_DateTime_does_not_convert")]
@@ -49,21 +74,21 @@ public class LegacyDateTimeTests : TestBase
             isDefaultForWriting: false);
     }
 
-    protected override async ValueTask<NpgsqlConnection> OpenConnectionAsync(string? connectionString = null)
-    {
-        var conn = await base.OpenConnectionAsync(connectionString);
-        await conn.ExecuteNonQueryAsync("SET TimeZone='Europe/Berlin'");
-        return conn;
-    }
-
-    protected override NpgsqlConnection OpenConnection(string? connectionString = null)
-        => throw new NotSupportedException();
+    NpgsqlDataSource _dataSource = null!;
+    protected override NpgsqlDataSource DataSource => _dataSource;
 
     [OneTimeSetUp]
     public void Setup()
     {
 #if DEBUG
         LegacyTimestampBehavior = true;
+        _dataSource = CreateDataSource(builder =>
+        {
+            // Can't use the static AdoTypeInfoResolver instance, it already captured the feature flag.
+            builder.AddTypeInfoResolverFactory(new AdoTypeInfoResolverFactory());
+            builder.ConnectionStringBuilder.Timezone = "Europe/Berlin";
+        });
+        NpgsqlDataSourceBuilder.ResetGlobalMappings(overwrite: true);
 #else
         Assert.Ignore(
             "Legacy DateTime tests rely on the Npgsql.EnableLegacyTimestampBehavior AppContext switch and can only be run in DEBUG builds");
@@ -72,6 +97,11 @@ public class LegacyDateTimeTests : TestBase
 
 #if DEBUG
     [OneTimeTearDown]
-    public void Teardown() => LegacyTimestampBehavior = false;
+    public void Teardown()
+    {
+        LegacyTimestampBehavior = false;
+        _dataSource.Dispose();
+        NpgsqlDataSourceBuilder.ResetGlobalMappings(overwrite: true);
+    }
 #endif
 }

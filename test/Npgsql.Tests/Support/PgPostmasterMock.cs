@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Npgsql.Internal;
-using Npgsql.Util;
 
 namespace Npgsql.Tests.Support;
 
@@ -18,11 +17,11 @@ class PgPostmasterMock : IAsyncDisposable
     const int CancelRequestCode = 1234 << 16 | 5678;
     const int SslRequest = 80877103;
 
-    static readonly Encoding Encoding = PGUtil.UTF8Encoding;
-    static readonly Encoding RelaxedEncoding = PGUtil.RelaxedUTF8Encoding;
+    static readonly Encoding Encoding = NpgsqlWriteBuffer.UTF8Encoding;
+    static readonly Encoding RelaxedEncoding = NpgsqlWriteBuffer.RelaxedUTF8Encoding;
 
     readonly Socket _socket;
-    readonly List<PgServerMock> _allServers = new();
+    readonly List<PgServerMock> _allServers = [];
     bool _acceptingClients;
     Task? _acceptClientsTask;
     int _processIdCounter;
@@ -81,17 +80,20 @@ class PgPostmasterMock : IAsyncDisposable
         Port = localEndPoint.Port;
         connectionStringBuilder.Host = Host;
         connectionStringBuilder.Port = Port;
+#pragma warning disable CS0618 // Type or member is obsolete
         connectionStringBuilder.ServerCompatibilityMode = ServerCompatibilityMode.NoTypeLoading;
+#pragma warning restore CS0618 // Type or member is obsolete
         ConnectionString = connectionStringBuilder.ConnectionString;
 
         _socket.Listen(5);
     }
 
-    public NpgsqlDataSourceBuilder GetDataSourceBuilder()
-        => new(ConnectionString);
-
-    public NpgsqlDataSource CreateDataSource()
-        => NpgsqlDataSource.Create(ConnectionString);
+    public NpgsqlDataSource CreateDataSource(Action<NpgsqlDataSourceBuilder>? configure = null)
+    {
+        var builder = new NpgsqlDataSourceBuilder(ConnectionString);
+        configure?.Invoke(builder);
+        return builder.Build();
+    }
 
     void AcceptClients()
     {
@@ -139,6 +141,7 @@ class PgPostmasterMock : IAsyncDisposable
         var readBuffer = new NpgsqlReadBuffer(null!, stream, clientSocket, ReadBufferSize, Encoding,
             RelaxedEncoding);
         var writeBuffer = new NpgsqlWriteBuffer(null!, stream, clientSocket, WriteBufferSize, Encoding);
+        writeBuffer.MessageLengthValidation = false;
 
         await readBuffer.EnsureAsync(4);
         var len = readBuffer.ReadInt32();

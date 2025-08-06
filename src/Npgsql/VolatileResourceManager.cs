@@ -1,5 +1,5 @@
 using System;
-using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Transactions;
 using Microsoft.Extensions.Logging;
@@ -17,6 +17,7 @@ namespace Npgsql;
 sealed class VolatileResourceManager : ISinglePhaseNotification
 {
     NpgsqlConnector _connector;
+    NpgsqlDataSource _dataSource;
     Transaction _transaction;
     readonly string _txId;
     NpgsqlTransaction _localTx = null!;
@@ -31,6 +32,7 @@ sealed class VolatileResourceManager : ISinglePhaseNotification
     internal VolatileResourceManager(NpgsqlConnection connection, Transaction transaction)
     {
         _connector = connection.Connector!;
+        _dataSource = connection.NpgsqlDataSource;
         _transaction = transaction;
         // _tx gets disposed by System.Transactions at some point, but we want to be able to log its local ID
         _txId = transaction.TransactionInformation.LocalIdentifier;
@@ -96,6 +98,8 @@ sealed class VolatileResourceManager : ISinglePhaseNotification
         }
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Changing Enlist to be false does not affect potentially trimmed out functionality.")]
+    [UnconditionalSuppressMessage("Aot", "IL3050", Justification = "Changing Enlist to be false does not cause dynamic codegen.")]
     public void Commit(Enlistment enlistment)
     {
         CheckDisposed();
@@ -121,7 +125,11 @@ sealed class VolatileResourceManager : ISinglePhaseNotification
                 // if the user continues to use their connection after disposing the scope, and the MSDTC
                 // requests a commit at that exact time.
                 // To avoid this, we open a new connection for performing the 2nd phase.
-                using var conn2 = (NpgsqlConnection)((ICloneable)_connector.Connection).Clone();
+                var settings = _connector.Connection.Settings.Clone();
+                // Set Enlist to false because we might be in TransactionScope and we can't prepare transaction while being in an open transaction
+                // see #5246
+                settings.Enlist = false;
+                using var conn2 = _connector.Connection.CloneWith(settings.ConnectionString);
                 conn2.Open();
 
                 var connector = conn2.Connector!;
@@ -271,8 +279,10 @@ sealed class VolatileResourceManager : ISinglePhaseNotification
         {
             // We're here for connections which were closed before their TransactionScope completes.
             // These need to be closed now.
-            // We should return the connector to the pool only if we've successfully removed it from the pending list
-            if (_connector.TryRemovePendingEnlistedConnector(_transaction))
+            // We should return the connector to the pool only if we've successfully removed it from the pending list.
+            // Note that we remove it from the NpgsqlDataSource bound to connection and not to connector
+            // because of NpgsqlMultiHostDataSource which has its own list to which connection adds connectors.
+            if (_dataSource.TryRemovePendingEnlistedConnector(_connector, _transaction))
                 _connector.Return();
         }
 
@@ -283,10 +293,7 @@ sealed class VolatileResourceManager : ISinglePhaseNotification
 #pragma warning restore CS8625
 
     void CheckDisposed()
-    {
-        if (_isDisposed)
-            throw new ObjectDisposedException(nameof(VolatileResourceManager));
-    }
+        => ObjectDisposedException.ThrowIf(_isDisposed, this);
 
     #endregion
 

@@ -1,7 +1,6 @@
 using BenchmarkDotNet.Attributes;
-using Npgsql.Internal.TypeHandling;
-using Npgsql.TypeMapping;
-using NpgsqlTypes;
+using Npgsql.Internal;
+using Npgsql.Internal.Postgres;
 
 namespace Npgsql.Benchmarks;
 
@@ -9,7 +8,7 @@ namespace Npgsql.Benchmarks;
 public class ResolveHandler
 {
     NpgsqlDataSource? _dataSource;
-    TypeMapper _typeMapper = null!;
+    PgSerializerOptions _serializerOptions = null!;
 
     [Params(0, 1, 2)]
     public int NumPlugins { get; set; }
@@ -23,29 +22,21 @@ public class ResolveHandler
         if (NumPlugins > 1)
             dataSourceBuilder.UseNetTopologySuite();
         _dataSource = dataSourceBuilder.Build();
-        _typeMapper = _dataSource.TypeMapper;
+        _serializerOptions = _dataSource.SerializerOptions;
     }
 
     [GlobalCleanup]
     public void Cleanup() => _dataSource?.Dispose();
 
     [Benchmark]
-    public NpgsqlTypeHandler ResolveOID()
-        => _typeMapper.ResolveByOID(23); // int4
+    public PgTypeInfo? ResolveDefault()
+        => _serializerOptions.GetTypeInfoInternal(null, new Oid(23)); // int4
 
     [Benchmark]
-    public NpgsqlTypeHandler ResolveNpgsqlDbType()
-        => _typeMapper.ResolveByNpgsqlDbType(NpgsqlDbType.Integer);
+    public PgTypeInfo? ResolveType()
+        => _serializerOptions.GetTypeInfoInternal(typeof(int), null);
 
     [Benchmark]
-    public NpgsqlTypeHandler ResolveDataTypeName()
-        => _typeMapper.ResolveByDataTypeName("integer");
-
-    [Benchmark]
-    public NpgsqlTypeHandler ResolveClrTypeNonGeneric()
-        => _typeMapper.ResolveByValue((object)8);
-
-    [Benchmark]
-    public NpgsqlTypeHandler ResolveClrTypeGeneric()
-        => _typeMapper.ResolveByValue(8);
+    public PgTypeInfo? ResolveBoth()
+        => _serializerOptions.GetTypeInfoInternal(typeof(int), new Oid(23)); // int4
 }

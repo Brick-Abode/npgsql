@@ -1,44 +1,45 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Npgsql.Util;
-// ReSharper disable VariableHidesOuterVariable
 
 namespace Npgsql.Internal;
 
 partial class NpgsqlConnector
 {
-    internal Task WriteDescribe(StatementOrPortal statementOrPortal, string name, bool async, CancellationToken cancellationToken = default)
+    internal Task WriteDescribe(StatementOrPortal statementOrPortal, byte[] asciiName, bool async, CancellationToken cancellationToken = default)
     {
-        Debug.Assert(name.All(c => c < 128));
+        NpgsqlWriteBuffer.AssertASCIIOnly(asciiName);
 
         var len = sizeof(byte) +       // Message code
                   sizeof(int)  +       // Length
                   sizeof(byte) +       // Statement or portal
-                  (name.Length + 1);   // Statement/portal name
+                  (asciiName.Length + 1);   // Statement/portal name
 
-        if (WriteBuffer.WriteSpaceLeft < len)
-            return FlushAndWrite(len, statementOrPortal, name, async, cancellationToken);
+        var writeBuffer = WriteBuffer;
+        writeBuffer.StartMessage(len);
+        if (writeBuffer.WriteSpaceLeft < len)
+            return FlushAndWrite(len, statementOrPortal, asciiName, async, cancellationToken);
 
-        Write(len, statementOrPortal, name);
+        Write(writeBuffer, len, statementOrPortal, asciiName);
         return Task.CompletedTask;
 
-        async Task FlushAndWrite(int len, StatementOrPortal statementOrPortal, string name, bool async, CancellationToken cancellationToken)
+        async Task FlushAndWrite(int len, StatementOrPortal statementOrPortal, byte[] name, bool async, CancellationToken cancellationToken)
         {
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
             Debug.Assert(len <= WriteBuffer.WriteSpaceLeft, $"Message of type {GetType().Name} has length {len} which is bigger than the buffer ({WriteBuffer.WriteSpaceLeft})");
-            Write(len, statementOrPortal, name);
+            Write(WriteBuffer, len, statementOrPortal, name);
         }
 
-        void Write(int len, StatementOrPortal statementOrPortal, string name)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void Write(NpgsqlWriteBuffer writeBuffer, int len, StatementOrPortal statementOrPortal, byte[] name)
         {
-            WriteBuffer.WriteByte(FrontendMessageCode.Describe);
-            WriteBuffer.WriteInt32(len - 1);
-            WriteBuffer.WriteByte((byte)statementOrPortal);
-            WriteBuffer.WriteNullTerminatedString(name);
+            writeBuffer.WriteByte(FrontendMessageCode.Describe);
+            writeBuffer.WriteInt32(len - 1);
+            writeBuffer.WriteByte((byte)statementOrPortal);
+            writeBuffer.WriteNullTerminatedString(name);
         }
     }
 
@@ -47,23 +48,26 @@ partial class NpgsqlConnector
         const int len = sizeof(byte) +  // Message code
                         sizeof(int);    // Length
 
-        if (WriteBuffer.WriteSpaceLeft < len)
+        var writeBuffer = WriteBuffer;
+        writeBuffer.StartMessage(len);
+        if (writeBuffer.WriteSpaceLeft < len)
             return FlushAndWrite(async, cancellationToken);
 
-        Write();
+        Write(writeBuffer);
         return Task.CompletedTask;
 
         async Task FlushAndWrite(bool async, CancellationToken cancellationToken)
         {
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
             Debug.Assert(len <= WriteBuffer.WriteSpaceLeft, $"Message of type {GetType().Name} has length {len} which is bigger than the buffer ({WriteBuffer.WriteSpaceLeft})");
-            Write();
+            Write(WriteBuffer);
         }
 
-        void Write()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void Write(NpgsqlWriteBuffer writeBuffer)
         {
-            WriteBuffer.WriteByte(FrontendMessageCode.Sync);
-            WriteBuffer.WriteInt32(len - 1);
+            writeBuffer.WriteByte(FrontendMessageCode.Sync);
+            writeBuffer.WriteInt32(len - 1);
         }
     }
 
@@ -76,31 +80,34 @@ partial class NpgsqlConnector
                         sizeof(byte) +       // Null-terminated portal name (always empty for now)
                         sizeof(int);         // Max number of rows
 
-        if (WriteBuffer.WriteSpaceLeft < len)
+        var writeBuffer = WriteBuffer;
+        writeBuffer.StartMessage(len);
+        if (writeBuffer.WriteSpaceLeft < len)
             return FlushAndWrite(maxRows, async, cancellationToken);
 
-        Write(maxRows);
+        Write(writeBuffer, maxRows);
         return Task.CompletedTask;
 
         async Task FlushAndWrite(int maxRows, bool async, CancellationToken cancellationToken)
         {
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
             Debug.Assert(10 <= WriteBuffer.WriteSpaceLeft, $"Message of type {GetType().Name} has length 10 which is bigger than the buffer ({WriteBuffer.WriteSpaceLeft})");
-            Write(maxRows);
+            Write(WriteBuffer, maxRows);
         }
 
-        void Write(int maxRows)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void Write(NpgsqlWriteBuffer writeBuffer, int maxRows)
         {
-            WriteBuffer.WriteByte(FrontendMessageCode.Execute);
-            WriteBuffer.WriteInt32(len - 1);
-            WriteBuffer.WriteByte(0);   // Portal is always empty for now
-            WriteBuffer.WriteInt32(maxRows);
+            writeBuffer.WriteByte(FrontendMessageCode.Execute);
+            writeBuffer.WriteInt32(len - 1);
+            writeBuffer.WriteByte(0);   // Portal is always empty for now
+            writeBuffer.WriteInt32(maxRows);
         }
     }
 
-    internal async Task WriteParse(string sql, string statementName, List<NpgsqlParameter> inputParameters, bool async, CancellationToken cancellationToken = default)
+    internal async Task WriteParse(string sql, byte[] asciiName, List<NpgsqlParameter> inputParameters, bool async, CancellationToken cancellationToken = default)
     {
-        Debug.Assert(statementName.All(c => c < 128));
+        NpgsqlWriteBuffer.AssertASCIIOnly(asciiName);
 
         int queryByteLen;
         try
@@ -113,71 +120,70 @@ partial class NpgsqlConnector
             throw;
         }
 
-        if (WriteBuffer.WriteSpaceLeft < 1 + 4 + statementName.Length + 1)
-            await Flush(async, cancellationToken);
-
+        var writeBuffer = WriteBuffer;
         var messageLength =
             sizeof(byte)                +         // Message code
             sizeof(int)                 +         // Length
-            statementName.Length        +         // Statement name
+            asciiName.Length        +         // Statement name
             sizeof(byte)                +         // Null terminator for the statement name
             queryByteLen + sizeof(byte) +         // SQL query length plus null terminator
             sizeof(ushort)              +         // Number of parameters
             inputParameters.Count * sizeof(int);  // Parameter OIDs
 
+
+        WriteBuffer.StartMessage(messageLength);
+        if (WriteBuffer.WriteSpaceLeft < 1 + 4 + asciiName.Length + 1)
+            await Flush(async, cancellationToken).ConfigureAwait(false);
+
         WriteBuffer.WriteByte(FrontendMessageCode.Parse);
         WriteBuffer.WriteInt32(messageLength - 1);
-        WriteBuffer.WriteNullTerminatedString(statementName);
+        WriteBuffer.WriteNullTerminatedString(asciiName);
 
-        await WriteBuffer.WriteString(sql, queryByteLen, async, cancellationToken);
+        await writeBuffer.WriteString(sql, queryByteLen, async, cancellationToken).ConfigureAwait(false);
 
-        if (WriteBuffer.WriteSpaceLeft < 1 + 2)
-            await Flush(async, cancellationToken);
-        WriteBuffer.WriteByte(0); // Null terminator for the query
-        WriteBuffer.WriteUInt16((ushort)inputParameters.Count);
+        if (writeBuffer.WriteSpaceLeft < 1 + 2)
+            await Flush(async, cancellationToken).ConfigureAwait(false);
+        writeBuffer.WriteByte(0); // Null terminator for the query
+        writeBuffer.WriteUInt16((ushort)inputParameters.Count);
 
+        var databaseInfo = DatabaseInfo;
         foreach (var p in inputParameters)
         {
-            if (WriteBuffer.WriteSpaceLeft < 4)
-                await Flush(async, cancellationToken);
+            if (writeBuffer.WriteSpaceLeft < 4)
+                await Flush(async, cancellationToken).ConfigureAwait(false);
 
-            WriteBuffer.WriteInt32((int)p.Handler!.PostgresType.OID);
+            writeBuffer.WriteUInt32(databaseInfo.GetOid(p.PgTypeId).Value);
         }
     }
 
     internal async Task WriteBind(
         List<NpgsqlParameter> parameters,
         string portal,
-        string statement,
+        byte[] asciiName,
         bool allResultTypesAreUnknown,
         bool[]? unknownResultTypeList,
         bool async,
         CancellationToken cancellationToken = default)
     {
-        Debug.Assert(statement.All(c => c < 128));
-        Debug.Assert(portal.All(c => c < 128));
+        NpgsqlWriteBuffer.AssertASCIIOnly(asciiName);
+        NpgsqlWriteBuffer.AssertASCIIOnly(portal);
 
         var headerLength =
             sizeof(byte)                    +     // Message code
             sizeof(int)                     +     // Message length
             sizeof(byte)                    +     // Portal is always empty (only a null terminator)
-            statement.Length + sizeof(byte) +     // Statement name plus null terminator
+            asciiName.Length + sizeof(byte) +     // Statement name plus null terminator
             sizeof(ushort);                       // Number of parameter format codes that follow
 
-        if (WriteBuffer.WriteSpaceLeft < headerLength)
-        {
-            Debug.Assert(WriteBuffer.Size >= headerLength, "Write buffer too small for Bind header");
-            await Flush(async, cancellationToken);
-        }
-
+        var writeBuffer = WriteBuffer;
         var formatCodesSum = 0;
         var paramsLength = 0;
         for (var paramIndex = 0; paramIndex < parameters.Count; paramIndex++)
         {
             var param = parameters[paramIndex];
-            formatCodesSum += (int)param.FormatCode;
-            param.LengthCache?.Rewind();
-            paramsLength += param.ValidateAndGetLength();
+            param.Bind(out var format, out var size);
+            paramsLength += size.Value > 0 ? size.Value : 0;
+            formatCodesSum += format.ToFormatCode();
         }
 
         var formatCodeListLength = formatCodesSum == 0 ? 0 : formatCodesSum == parameters.Count ? 1 : parameters.Count;
@@ -190,119 +196,139 @@ partial class NpgsqlConnector
                             sizeof(short)                        +                  // Number of result format codes
                             sizeof(short) * (unknownResultTypeList?.Length ?? 1);   // Result format codes
 
+        WriteBuffer.StartMessage(messageLength);
+        if (WriteBuffer.WriteSpaceLeft < headerLength)
+        {
+            Debug.Assert(WriteBuffer.Size >= headerLength, "Write buffer too small for Bind header");
+            await Flush(async, cancellationToken).ConfigureAwait(false);
+        }
+
         WriteBuffer.WriteByte(FrontendMessageCode.Bind);
         WriteBuffer.WriteInt32(messageLength - 1);
         Debug.Assert(portal == string.Empty);
-        WriteBuffer.WriteByte(0);  // Portal is always empty
+        writeBuffer.WriteByte(0);  // Portal is always empty
 
-        WriteBuffer.WriteNullTerminatedString(statement);
-        WriteBuffer.WriteInt16(formatCodeListLength);
+        writeBuffer.WriteNullTerminatedString(asciiName);
+        writeBuffer.WriteInt16((short)formatCodeListLength);
 
         // 0 length implicitly means all-text, 1 means all-binary, >1 means mix-and-match
         if (formatCodeListLength == 1)
         {
-            if (WriteBuffer.WriteSpaceLeft < 2)
-                await Flush(async, cancellationToken);
-            WriteBuffer.WriteInt16((short)FormatCode.Binary);
+            if (writeBuffer.WriteSpaceLeft < sizeof(short))
+                await Flush(async, cancellationToken).ConfigureAwait(false);
+            writeBuffer.WriteInt16(DataFormat.Binary.ToFormatCode());
         }
         else if (formatCodeListLength > 1)
         {
             for (var paramIndex = 0; paramIndex < parameters.Count; paramIndex++)
             {
-                if (WriteBuffer.WriteSpaceLeft < 2)
-                    await Flush(async, cancellationToken);
-                WriteBuffer.WriteInt16((short)parameters[paramIndex].FormatCode);
+                if (writeBuffer.WriteSpaceLeft < sizeof(short))
+                    await Flush(async, cancellationToken).ConfigureAwait(false);
+                writeBuffer.WriteInt16(parameters[paramIndex].Format.ToFormatCode());
             }
         }
 
-        if (WriteBuffer.WriteSpaceLeft < 2)
-            await Flush(async, cancellationToken);
+        if (writeBuffer.WriteSpaceLeft < sizeof(ushort))
+            await Flush(async, cancellationToken).ConfigureAwait(false);
 
-        WriteBuffer.WriteUInt16((ushort)parameters.Count);
-
-        for (var paramIndex = 0; paramIndex < parameters.Count; paramIndex++)
+        writeBuffer.WriteUInt16((ushort)parameters.Count);
+        if (parameters.Count > 0)
         {
-            var param = parameters[paramIndex];
-            param.LengthCache?.Rewind();
-            await param.WriteWithLength(WriteBuffer, async, cancellationToken);
+            var writer = writeBuffer.GetWriter(DatabaseInfo, async ? FlushMode.NonBlocking : FlushMode.Blocking);
+            try
+            {
+                for (var paramIndex = 0; paramIndex < parameters.Count; paramIndex++)
+                {
+                    var param = parameters[paramIndex];
+                    await param.Write(async, writer, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch(Exception ex)
+            {
+                Break(ex);
+                throw;
+            }
         }
 
         if (unknownResultTypeList != null)
         {
-            if (WriteBuffer.WriteSpaceLeft < 2 + unknownResultTypeList.Length * 2)
-                await Flush(async, cancellationToken);
-            WriteBuffer.WriteInt16(unknownResultTypeList.Length);
+            if (writeBuffer.WriteSpaceLeft < 2 + unknownResultTypeList.Length * 2)
+                await Flush(async, cancellationToken).ConfigureAwait(false);
+            writeBuffer.WriteInt16((short)unknownResultTypeList.Length);
             foreach (var t in unknownResultTypeList)
-                WriteBuffer.WriteInt16(t ? 0 : 1);
+                writeBuffer.WriteInt16((short)(t ? 0 : 1));
         }
         else
         {
-            if (WriteBuffer.WriteSpaceLeft < 4)
-                await Flush(async, cancellationToken);
-            WriteBuffer.WriteInt16(1);
-            WriteBuffer.WriteInt16(allResultTypesAreUnknown ? 0 : 1);
+            if (writeBuffer.WriteSpaceLeft < 4)
+                await Flush(async, cancellationToken).ConfigureAwait(false);
+            writeBuffer.WriteInt16(1);
+            writeBuffer.WriteInt16((short)(allResultTypesAreUnknown ? 0 : 1));
         }
     }
 
-    internal Task WriteClose(StatementOrPortal type, string name, bool async, CancellationToken cancellationToken = default)
+    internal Task WriteClose(StatementOrPortal type, byte[] asciiName, bool async, CancellationToken cancellationToken = default)
     {
         var len = sizeof(byte) +               // Message code
                   sizeof(int)  +               // Length
                   sizeof(byte) +               // Statement or portal
-                  name.Length + sizeof(byte);  // Statement or portal name plus null terminator
+                  asciiName.Length + sizeof(byte);  // Statement or portal name plus null terminator
 
-        if (WriteBuffer.WriteSpaceLeft < 10)
-            return FlushAndWrite(len, type, name, async, cancellationToken);
+        var writeBuffer = WriteBuffer;
+        writeBuffer.StartMessage(len);
+        if (writeBuffer.WriteSpaceLeft < len)
+            return FlushAndWrite(len, type, asciiName, async, cancellationToken);
 
-        Write(len, type, name);
+        Write(writeBuffer, len, type, asciiName);
         return Task.CompletedTask;
 
-        async Task FlushAndWrite(int len, StatementOrPortal type, string name, bool async, CancellationToken cancellationToken)
+        async Task FlushAndWrite(int len, StatementOrPortal type, byte[] name, bool async, CancellationToken cancellationToken)
         {
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
             Debug.Assert(len <= WriteBuffer.WriteSpaceLeft, $"Message of type {GetType().Name} has length {len} which is bigger than the buffer ({WriteBuffer.WriteSpaceLeft})");
-            Write(len, type, name);
+            Write(WriteBuffer, len, type, name);
         }
 
-        void Write(int len, StatementOrPortal type, string name)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void Write(NpgsqlWriteBuffer writeBuffer, int len, StatementOrPortal type, byte[] name)
         {
-            WriteBuffer.WriteByte(FrontendMessageCode.Close);
-            WriteBuffer.WriteInt32(len - 1);
-            WriteBuffer.WriteByte((byte)type);
-            WriteBuffer.WriteNullTerminatedString(name);
+            writeBuffer.WriteByte(FrontendMessageCode.Close);
+            writeBuffer.WriteInt32(len - 1);
+            writeBuffer.WriteByte((byte)type);
+            writeBuffer.WriteNullTerminatedString(name);
         }
     }
-
-    internal void WriteQuery(string sql) => WriteQuery(sql, false).GetAwaiter().GetResult();
 
     internal async Task WriteQuery(string sql, bool async, CancellationToken cancellationToken = default)
     {
         var queryByteLen = TextEncoding.GetByteCount(sql);
 
+        var len = sizeof(byte) +
+                  sizeof(int) + // Message length (including self excluding code)
+                  queryByteLen + // Query byte length
+                  sizeof(byte);
+
+        WriteBuffer.StartMessage(len);
         if (WriteBuffer.WriteSpaceLeft < 1 + 4)
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
 
         WriteBuffer.WriteByte(FrontendMessageCode.Query);
-        WriteBuffer.WriteInt32(
-            sizeof(int)  +        // Message length (including self excluding code)
-            queryByteLen +        // Query byte length
-            sizeof(byte));        // Null terminator
+        WriteBuffer.WriteInt32(len - 1);
 
-        await WriteBuffer.WriteString(sql, queryByteLen, async, cancellationToken);
+        await WriteBuffer.WriteString(sql, queryByteLen, async, cancellationToken).ConfigureAwait(false);
         if (WriteBuffer.WriteSpaceLeft < 1)
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
         WriteBuffer.WriteByte(0);  // Null terminator
     }
-
-    internal void WriteCopyDone() => WriteCopyDone(false).GetAwaiter().GetResult();
 
     internal async Task WriteCopyDone(bool async, CancellationToken cancellationToken = default)
     {
         const int len = sizeof(byte) +   // Message code
                         sizeof(int);     // Length
 
+        WriteBuffer.StartMessage(len);
         if (WriteBuffer.WriteSpaceLeft < len)
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
 
         WriteBuffer.WriteByte(FrontendMessageCode.CopyDone);
         WriteBuffer.WriteInt32(len - 1);
@@ -316,8 +342,9 @@ partial class NpgsqlConnector
                         sizeof(int) +   // Length
                         sizeof(byte);   // Error message is always empty (only a null terminator)
 
+        WriteBuffer.StartMessage(len);
         if (WriteBuffer.WriteSpaceLeft < len)
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
 
         WriteBuffer.WriteByte(FrontendMessageCode.CopyFail);
         WriteBuffer.WriteInt32(len - 1);
@@ -333,6 +360,7 @@ partial class NpgsqlConnector
 
         Debug.Assert(backendProcessId != 0);
 
+        WriteBuffer.StartMessage(len);
         if (WriteBuffer.WriteSpaceLeft < len)
             Flush(false).GetAwaiter().GetResult();
 
@@ -347,6 +375,7 @@ partial class NpgsqlConnector
         const int len = sizeof(byte) +  // Message code
                         sizeof(int);    // Length
 
+        WriteBuffer.StartMessage(len);
         if (WriteBuffer.WriteSpaceLeft < len)
             Flush(false).GetAwaiter().GetResult();
 
@@ -359,6 +388,7 @@ partial class NpgsqlConnector
         const int len = sizeof(int) +  // Length
                         sizeof(int);   // SSL request code
 
+        WriteBuffer.StartMessage(len);
         if (WriteBuffer.WriteSpaceLeft < len)
             Flush(false).GetAwaiter().GetResult();
 
@@ -375,10 +405,11 @@ partial class NpgsqlConnector
                   sizeof(byte);  // Trailing zero byte
 
         foreach (var kvp in parameters)
-            len += PGUtil.UTF8Encoding.GetByteCount(kvp.Key) + 1 +
-                   PGUtil.UTF8Encoding.GetByteCount(kvp.Value) + 1;
+            len += NpgsqlWriteBuffer.UTF8Encoding.GetByteCount(kvp.Key) + 1 +
+                   NpgsqlWriteBuffer.UTF8Encoding.GetByteCount(kvp.Value) + 1;
 
         // Should really never happen, just in case
+        WriteBuffer.StartMessage(len);
         if (len > WriteBuffer.Size)
             throw new Exception("Startup message bigger than buffer");
 
@@ -402,8 +433,10 @@ partial class NpgsqlConnector
 
     internal async Task WritePassword(byte[] payload, int offset, int count, bool async, CancellationToken cancellationToken = default)
     {
+        WriteBuffer.StartMessage(sizeof(byte) + sizeof(int) + count);
         if (WriteBuffer.WriteSpaceLeft < sizeof(byte) + sizeof(int))
-            await WriteBuffer.Flush(async, cancellationToken);
+            await WriteBuffer.Flush(async, cancellationToken).ConfigureAwait(false);
+
         WriteBuffer.WriteByte(FrontendMessageCode.Password);
         WriteBuffer.WriteInt32(sizeof(int) + count);
 
@@ -414,20 +447,21 @@ partial class NpgsqlConnector
             return;
         }
 
-        await WriteBuffer.Flush(async, cancellationToken);
-        await WriteBuffer.DirectWrite(new ReadOnlyMemory<byte>(payload, offset, count), async, cancellationToken);
+        await WriteBuffer.Flush(async, cancellationToken).ConfigureAwait(false);
+        await WriteBuffer.DirectWrite(new ReadOnlyMemory<byte>(payload, offset, count), async, cancellationToken).ConfigureAwait(false);
     }
 
     internal async Task WriteSASLInitialResponse(string mechanism, byte[] initialResponse, bool async, CancellationToken cancellationToken = default)
     {
         var len = sizeof(byte)                                               +  // Message code
                   sizeof(int)                                                +  // Length
-                  PGUtil.UTF8Encoding.GetByteCount(mechanism) + sizeof(byte) +  // Mechanism plus null terminator
+                  NpgsqlWriteBuffer.UTF8Encoding.GetByteCount(mechanism) + sizeof(byte) +  // Mechanism plus null terminator
                   sizeof(int)                                                +  // Initial response length
                   (initialResponse?.Length ?? 0);                               // Initial response payload
 
+        WriteBuffer.StartMessage(len);
         if (WriteBuffer.WriteSpaceLeft < len)
-            await WriteBuffer.Flush(async, cancellationToken);
+            await WriteBuffer.Flush(async, cancellationToken).ConfigureAwait(false);
 
         WriteBuffer.WriteByte(FrontendMessageCode.Password);
         WriteBuffer.WriteInt32(len - 1);
@@ -449,6 +483,7 @@ partial class NpgsqlConnector
 
     internal Task WritePregenerated(byte[] data, bool async = false, CancellationToken cancellationToken = default)
     {
+        WriteBuffer.StartMessage(data.Length);
         if (WriteBuffer.WriteSpaceLeft < data.Length)
             return FlushAndWrite(data, async, cancellationToken);
 
@@ -457,7 +492,7 @@ partial class NpgsqlConnector
 
         async Task FlushAndWrite(byte[] data, bool async, CancellationToken cancellationToken)
         {
-            await Flush(async, cancellationToken);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
             Debug.Assert(data.Length <= WriteBuffer.WriteSpaceLeft, $"Pregenerated message has length {data.Length} which is bigger than the buffer ({WriteBuffer.WriteSpaceLeft})");
             WriteBuffer.WriteBytes(data, 0, data.Length);
         }

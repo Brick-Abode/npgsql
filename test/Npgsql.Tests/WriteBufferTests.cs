@@ -1,13 +1,37 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using Npgsql.Internal;
-using Npgsql.Util;
 using NUnit.Framework;
 
 namespace Npgsql.Tests;
 
-[NonParallelizable] // Parallel access to a single buffer
+[FixtureLifeCycle(LifeCycle.InstancePerTestCase)] // Parallel access to a single buffer
 class WriteBufferTests
 {
+    [Test]
+    public void Buffered_full_buffer_no_flush()
+    {
+        WriteBuffer.WritePosition += WriteBuffer.WriteSpaceLeft - sizeof(int);
+        var writer = WriteBuffer.GetWriter(null!, FlushMode.NonBlocking);
+        Assert.That(writer.ShouldFlush(sizeof(int)), Is.False);
+
+        Assert.DoesNotThrow(() =>
+        {
+            Span<byte> intBytes = stackalloc byte[4];
+            writer.WriteBytes(intBytes);
+        });
+    }
+
+    [Test]
+    public void GetWriter_Full_Buffer()
+    {
+        WriteBuffer.WritePosition += WriteBuffer.WriteSpaceLeft;
+        var writer = WriteBuffer.GetWriter(null!, FlushMode.Blocking);
+        Assert.That(writer.ShouldFlush(sizeof(byte)), Is.True);
+        writer.Flush();
+        Assert.That(writer.ShouldFlush(sizeof(byte)), Is.False);
+    }
+
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/1275")]
     public void Write_zero_characters()
     {
@@ -83,14 +107,13 @@ class WriteBufferTests
         Assert.That(completed, Is.False);
     }
 
-#pragma warning disable CS8625
     [SetUp]
     public void SetUp()
     {
         Underlying = new MemoryStream();
-        WriteBuffer = new NpgsqlWriteBuffer(null, Underlying, null, NpgsqlReadBuffer.DefaultSize, PGUtil.UTF8Encoding);
+        WriteBuffer = new NpgsqlWriteBuffer(null, Underlying, null, NpgsqlReadBuffer.DefaultSize, NpgsqlWriteBuffer.UTF8Encoding);
+        WriteBuffer.MessageLengthValidation = false;
     }
-#pragma warning restore CS8625
 
     // ReSharper disable once InconsistentNaming
     NpgsqlWriteBuffer WriteBuffer = default!;

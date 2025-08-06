@@ -4,28 +4,18 @@ using System.Data;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Reflection;
 
 namespace Npgsql;
 
 static class NpgsqlActivitySource
 {
-    static readonly ActivitySource Source;
-
-    static NpgsqlActivitySource()
-    {
-        var assembly = typeof(NpgsqlActivitySource).Assembly;
-        var version = assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version ?? "0.0.0";
-        Source = new("Npgsql", version);
-    }
+    static readonly ActivitySource Source = new("Npgsql", "0.1.0");
 
     internal static bool IsEnabled => Source.HasListeners();
 
-    internal static Activity? CommandStart(NpgsqlConnector connector, string commandText, CommandType commandType)
+    internal static Activity? CommandStart(NpgsqlConnectionStringBuilder settings, string commandText, CommandType commandType, string? spanName)
     {
-        var settings = connector.Settings;
-
-        var dbName = settings.Database ?? connector.InferredUserName;
+        var dbName = settings.Database ?? "UNKNOWN";
         string? dbOperation = null;
         string? dbSqlTable = null;
         string activityName;
@@ -57,22 +47,32 @@ static class NpgsqlActivitySource
             throw new ArgumentOutOfRangeException(nameof(commandType), commandType, null);
         }
 
-        var activity = Source.StartActivity(activityName, ActivityKind.Client);
+        var activity = Source.StartActivity(spanName ?? activityName, ActivityKind.Client);
         if (activity is not { IsAllDataRequested: true })
             return activity;
+
+        activity.SetTag("db.statement", commandText);
+
+        if (dbOperation != null)
+            activity.SetTag("db.operation", dbOperation);
+        if (dbSqlTable != null)
+            activity.SetTag("db.sql.table", dbSqlTable);
+
+        return activity;
+    }
+
+    internal static void Enrich(Activity activity, NpgsqlConnector connector)
+    {
+        if (!activity.IsAllDataRequested)
+            return;
 
         activity.SetTag("db.system", "postgresql");
         activity.SetTag("db.connection_string", connector.UserFacingConnectionString);
         activity.SetTag("db.user", connector.InferredUserName);
         // We trace the actual (maybe inferred) database name we're connected to, even if it
         // wasn't specified in the connection string
-        activity.SetTag("db.name", dbName);
-        activity.SetTag("db.statement", commandText);
+        activity.SetTag("db.name", connector.Settings.Database ?? connector.InferredUserName);
         activity.SetTag("db.connection_id", connector.Id);
-        if (dbOperation != null)
-            activity.SetTag("db.operation", dbOperation);
-        if (dbSqlTable != null)
-            activity.SetTag("db.sql.table", dbSqlTable);
 
         var endPoint = connector.ConnectedEndPoint;
         Debug.Assert(endPoint is not null);
@@ -83,23 +83,24 @@ static class NpgsqlActivitySource
             activity.SetTag("net.peer.ip", ipEndPoint.Address.ToString());
             if (ipEndPoint.Port != 5432)
                 activity.SetTag("net.peer.port", ipEndPoint.Port);
-            activity.SetTag("net.peer.name", settings.Host);
+            activity.SetTag("net.peer.name", connector.Host);
             break;
 
         case UnixDomainSocketEndPoint:
             activity.SetTag("net.transport", "unix");
-            activity.SetTag("net.peer.name", settings.Host);
+            activity.SetTag("net.peer.name", connector.Host);
             break;
 
         default:
             throw new ArgumentOutOfRangeException("Invalid endpoint type: " + endPoint.GetType());
         }
-
-        return activity;
     }
 
-    internal static void ReceivedFirstResponse(Activity activity)
+    internal static void ReceivedFirstResponse(Activity activity, NpgsqlTracingOptions tracingOptions)
     {
+        if (!activity.IsAllDataRequested || !tracingOptions.EnableFirstResponseEvent)
+            return;
+
         var activityEvent = new ActivityEvent("received-first-response");
         activity.AddEvent(activityEvent);
     }

@@ -7,15 +7,18 @@ using System.Text;
 using System.Threading.Tasks;
 using Npgsql.BackendMessages;
 using Npgsql.Internal;
-using Npgsql.TypeMapping;
-using Npgsql.Util;
+using Npgsql.Internal.Postgres;
 using NUnit.Framework;
 
 namespace Npgsql.Tests.Support;
 
 class PgServerMock : IDisposable
 {
-    static readonly Encoding Encoding = PGUtil.UTF8Encoding;
+    static uint BoolOid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Bool).Value;
+    static uint Int4Oid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Int4).Value;
+    static uint TextOid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Text).Value;
+
+    static readonly Encoding Encoding = NpgsqlWriteBuffer.UTF8Encoding;
 
     readonly NetworkStream _stream;
     readonly NpgsqlReadBuffer _readBuffer;
@@ -38,6 +41,7 @@ class PgServerMock : IDisposable
         _stream = stream;
         _readBuffer = readBuffer;
         _writeBuffer = writeBuffer;
+        writeBuffer.MessageLengthValidation = false;
     }
 
     internal async Task Startup(MockState state)
@@ -90,12 +94,12 @@ class PgServerMock : IDisposable
 
         return WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Bool))
+            .WriteRowDescription(new FieldDescription(BoolOid))
             .WriteDataRow(BitConverter.GetBytes(isStandby))
             .WriteCommandComplete()
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Text))
+            .WriteRowDescription(new FieldDescription(TextOid))
             .WriteDataRow(Encoding.ASCII.GetBytes(transactionReadOnly))
             .WriteCommandComplete()
             .WriteReadyForQuery()
@@ -148,7 +152,7 @@ class PgServerMock : IDisposable
         Assert.That(actualSql, Is.EqualTo(expectedSql));
     }
 
-    internal Task WaitForData() => _readBuffer.EnsureAsync(1);
+    internal Task WaitForData() => _readBuffer.EnsureAsync(1).AsTask();
 
     internal Task FlushAsync()
     {
@@ -159,7 +163,7 @@ class PgServerMock : IDisposable
     internal Task WriteScalarResponseAndFlush(int value)
         => WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
             .WriteDataRow(BitConverter.GetBytes(BinaryPrimitives.ReverseEndianness(value)))
             .WriteCommandComplete()
             .WriteReadyForQuery()
@@ -168,7 +172,7 @@ class PgServerMock : IDisposable
     internal Task WriteScalarResponseAndFlush(bool value)
         => WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Bool))
+            .WriteRowDescription(new FieldDescription(BoolOid))
             .WriteDataRow(BitConverter.GetBytes(value))
             .WriteCommandComplete()
             .WriteReadyForQuery()
@@ -177,7 +181,7 @@ class PgServerMock : IDisposable
     internal Task WriteScalarResponseAndFlush(string value)
         => WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Text))
+            .WriteRowDescription(new FieldDescription(TextOid))
             .WriteDataRow(Encoding.ASCII.GetBytes(value))
             .WriteCommandComplete()
             .WriteReadyForQuery()
@@ -209,7 +213,7 @@ class PgServerMock : IDisposable
 
         _writeBuffer.WriteByte((byte)BackendMessageCode.RowDescription);
         _writeBuffer.WriteInt32(4 + 2 + fields.Sum(f => Encoding.GetByteCount(f.Name) + 1 + 18));
-        _writeBuffer.WriteInt16(fields.Length);
+        _writeBuffer.WriteInt16((short)fields.Length);
 
         foreach (var field in fields)
         {
@@ -219,8 +223,22 @@ class PgServerMock : IDisposable
             _writeBuffer.WriteUInt32(field.TypeOID);
             _writeBuffer.WriteInt16(field.TypeSize);
             _writeBuffer.WriteInt32(field.TypeModifier);
-            _writeBuffer.WriteInt16((short)field.FormatCode);
+            _writeBuffer.WriteInt16(field.DataFormat.ToFormatCode());
         }
+
+        return this;
+    }
+
+    internal PgServerMock WriteParameterDescription(params FieldDescription[] fields)
+    {
+        CheckDisposed();
+
+        _writeBuffer.WriteByte((byte)BackendMessageCode.ParameterDescription);
+        _writeBuffer.WriteInt32(1 + 4 + 2 + fields.Length * 4);
+        _writeBuffer.WriteUInt16((ushort)fields.Length);
+
+        foreach (var field in fields)
+            _writeBuffer.WriteUInt32(field.TypeOID);
 
         return this;
     }
@@ -233,13 +251,21 @@ class PgServerMock : IDisposable
         return this;
     }
 
+    internal PgServerMock WriteEmptyQueryResponse()
+    {
+        CheckDisposed();
+        _writeBuffer.WriteByte((byte)BackendMessageCode.EmptyQueryResponse);
+        _writeBuffer.WriteInt32(4);
+        return this;
+    }
+
     internal PgServerMock WriteDataRow(params byte[][] columnValues)
     {
         CheckDisposed();
 
         _writeBuffer.WriteByte((byte)BackendMessageCode.DataRow);
         _writeBuffer.WriteInt32(4 + 2 + columnValues.Sum(v => 4 + v.Length));
-        _writeBuffer.WriteInt16(columnValues.Length);
+        _writeBuffer.WriteInt16((short)columnValues.Length);
 
         foreach (var field in columnValues)
         {
@@ -259,7 +285,7 @@ class PgServerMock : IDisposable
 
         _writeBuffer.WriteByte((byte)BackendMessageCode.DataRow);
         _writeBuffer.WriteInt32(4 + 2 + columnValues.Sum(v => 4 + v.Length));
-        _writeBuffer.WriteInt16(columnValues.Length);
+        _writeBuffer.WriteInt16((short)columnValues.Length);
 
         foreach (var field in columnValues)
         {
@@ -328,12 +354,12 @@ class PgServerMock : IDisposable
     internal PgServerMock WriteCancellationResponse()
         => WriteErrorResponse(PostgresErrorCodes.QueryCanceled, "Cancellation", "Query cancelled");
 
-    internal PgServerMock WriteCopyInResponse()
+    internal PgServerMock WriteCopyInResponse(bool isBinary = false)
     {
         CheckDisposed();
         _writeBuffer.WriteByte((byte)BackendMessageCode.CopyInResponse);
         _writeBuffer.WriteInt32(5);
-        _writeBuffer.WriteByte(0);
+        _writeBuffer.WriteByte(isBinary ? (byte)1 : (byte)0);
         _writeBuffer.WriteInt16(1);
         _writeBuffer.WriteInt16(0);
         return this;

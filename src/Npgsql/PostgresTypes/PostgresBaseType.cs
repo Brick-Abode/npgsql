@@ -1,4 +1,6 @@
 ﻿
+using Npgsql.Internal.Postgres;
+
 namespace Npgsql.PostgresTypes;
 
 /// <summary>
@@ -6,10 +8,17 @@ namespace Npgsql.PostgresTypes;
 /// </summary>
 public class PostgresBaseType : PostgresType
 {
-    /// <inheritdoc/>
-    protected internal PostgresBaseType(string ns, string internalName, uint oid)
-        : base(ns, TranslateInternalName(internalName), internalName, oid)
-    {}
+    /// <summary>
+    /// Constructs a representation of a PostgreSQL base data type.
+    /// </summary>
+    protected internal PostgresBaseType(string ns, string name, uint oid)
+        : base(ns, name, oid) {}
+
+    /// <summary>
+    /// Constructs a representation of a PostgreSQL base data type.
+    /// </summary>
+    internal PostgresBaseType(DataTypeName dataTypeName, Oid oid)
+        : base(dataTypeName, oid) {}
 
     /// <inheritdoc/>
     internal override string GetPartialNameWithFacets(int typeModifier)
@@ -68,27 +77,4 @@ public class PostgresBaseType : PostgresType
             return PostgresFacets.None;
         }
     }
-
-    // The type names returned by PostgreSQL are internal names (int4 instead of
-    // integer). We perform translation to the user-facing standard names.
-    // https://www.postgresql.org/docs/current/static/datatype.html#DATATYPE-TABLE
-    static string TranslateInternalName(string internalName)
-        => internalName switch
-        {
-            "bool"        => "boolean",
-            "bpchar"      => "character",
-            "decimal"     => "numeric",
-            "float4"      => "real",
-            "float8"      => "double precision",
-            "int2"        => "smallint",
-            "int4"        => "integer",
-            "int8"        => "bigint",
-            "time"        => "time without time zone",
-            "timestamp"   => "timestamp without time zone",
-            "timetz"      => "time with time zone",
-            "timestamptz" => "timestamp with time zone",
-            "varbit"      => "bit varying",
-            "varchar"     => "character varying",
-            _             => internalName
-        };
 }

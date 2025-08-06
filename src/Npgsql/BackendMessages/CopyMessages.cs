@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using Npgsql.Internal;
-using Npgsql.Util;
 
 namespace Npgsql.BackendMessages;
 
@@ -11,12 +10,10 @@ abstract class CopyResponseMessageBase : IBackendMessage
 
     internal bool IsBinary { get; private set; }
     internal short NumColumns { get; private set; }
-    internal List<FormatCode> ColumnFormatCodes { get; }
+    internal List<DataFormat> ColumnFormatCodes { get; }
 
     internal CopyResponseMessageBase()
-    {
-        ColumnFormatCodes = new List<FormatCode>();
-    }
+        => ColumnFormatCodes = [];
 
     internal void Load(NpgsqlReadBuffer buf)
     {
@@ -32,7 +29,7 @@ abstract class CopyResponseMessageBase : IBackendMessage
 
         NumColumns = buf.ReadInt16();
         for (var i = 0; i < NumColumns; i++)
-            ColumnFormatCodes.Add((FormatCode)buf.ReadInt16());
+            ColumnFormatCodes.Add(DataFormatUtils.Create(buf.ReadInt16()));
     }
 }
 

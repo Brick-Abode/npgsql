@@ -5,6 +5,9 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Npgsql.BackendMessages;
+using Npgsql.Internal.Postgres;
+using Npgsql.Tests.Support;
 using NpgsqlTypes;
 using NUnit.Framework;
 using static Npgsql.Tests.TestUtil;
@@ -13,6 +16,8 @@ namespace Npgsql.Tests;
 
 public class PrepareTests: TestBase
 {
+    static uint Int4Oid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Int4).Value;
+
     [Test]
     public void Basic()
     {
@@ -216,11 +221,8 @@ public class PrepareTests: TestBase
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/395")]
     public void Across_close_open_same_connector()
     {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            ApplicationName = nameof(PrepareTests) + '.' + nameof(Across_close_open_same_connector)
-        };
-        using var conn = OpenConnectionAndUnprepare(csb);
+        using var dataSource = CreateDataSource();
+        using var conn = dataSource.OpenConnection();
         using var cmd = new NpgsqlCommand("SELECT 1", conn);
         cmd.Prepare();
         Assert.That(cmd.IsPrepared, Is.True);
@@ -232,18 +234,14 @@ public class PrepareTests: TestBase
         Assert.That(cmd.ExecuteScalar(), Is.EqualTo(1));
         cmd.Prepare();
         Assert.That(cmd.ExecuteScalar(), Is.EqualTo(1));
-        NpgsqlConnection.ClearPool(conn);
     }
 
     [Test]
     public void Across_close_open_different_connector()
     {
-        var connString = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            ApplicationName = nameof(PrepareTests) + '.' + nameof(Across_close_open_different_connector)
-        }.ToString();
-        using var conn1 = new NpgsqlConnection(connString);
-        using var conn2 = new NpgsqlConnection(connString);
+        using var dataSource = CreateDataSource();
+        using var conn1 = dataSource.CreateConnection();
+        using var conn2 = dataSource.CreateConnection();
         using var cmd = new NpgsqlCommand("SELECT 1", conn1);
         conn1.Open();
         cmd.Prepare();
@@ -257,18 +255,14 @@ public class PrepareTests: TestBase
         Assert.That(cmd.ExecuteScalar(), Is.EqualTo(1));  // Execute unprepared
         cmd.Prepare();
         Assert.That(cmd.ExecuteScalar(), Is.EqualTo(1));
-        NpgsqlConnection.ClearPool(conn1);
     }
 
     [Test]
     public void Reuse_prepared_statement()
     {
-        var connString = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            ApplicationName = nameof(PrepareTests) + '.' + nameof(Reuse_prepared_statement)
-        }.ToString();
-        using var conn1 = OpenConnection(connString);
-        var preparedStatement = "";
+        using var dataSource = CreateDataSource();
+        using var conn1 = dataSource.OpenConnection();
+        var preparedStatement = Array.Empty<byte>();
         using (var cmd1 = new NpgsqlCommand("SELECT @p", conn1))
         {
             cmd1.Parameters.AddWithValue("p", 8);
@@ -286,7 +280,6 @@ public class PrepareTests: TestBase
             Assert.That(cmd2.InternalBatchCommands[0].PreparedStatement!.Name, Is.EqualTo(preparedStatement));
             Assert.That(cmd2.ExecuteScalar(), Is.EqualTo(8));
         }
-        NpgsqlConnection.ClearPool(conn1);
     }
 
     [Test]
@@ -388,12 +381,12 @@ public class PrepareTests: TestBase
     [Test]
     public void One_command_same_sql_auto_prepare()
     {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
+        using var dataSource = CreateDataSource(csb =>
         {
-            MaxAutoPrepare = 5,
-            AutoPrepareMinUsages = 2
-        };
-        using var conn = OpenConnectionAndUnprepare(csb);
+            csb.MaxAutoPrepare = 5;
+            csb.AutoPrepareMinUsages = 2;
+        });
+        using var conn = dataSource.OpenConnection();
         var sql = new StringBuilder();
         for (var i = 0; i < 2 + 1; i++)
             sql.Append("SELECT 1;");
@@ -469,7 +462,7 @@ public class PrepareTests: TestBase
 
         // SQL overloading is a pretty rare/exotic scenario. Handling it properly would involve keying
         // prepared statements not just by SQL but also by the parameter types, which would pointlessly
-        // increase allocations. Instead, the second execution simply reuns unprepared
+        // increase allocations. Instead, the second execution simply reruns unprepared
         AssertNumPreparedStatements(conn, 1);
         conn.UnprepareAll();
     }
@@ -535,12 +528,8 @@ public class PrepareTests: TestBase
     [Test, Description("Basic persistent prepared system scenario. Checks that statement is not deallocated in the backend after connection close.")]
     public void Persistent_across_connections()
     {
-        var connSettings = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            ApplicationName = nameof(Persistent_across_connections)
-        };
-
-        using var conn = OpenConnectionAndUnprepare(connSettings);
+        using var dataSource = CreateDataSource();
+        using var conn = dataSource.OpenConnection();
         var processId = conn.ProcessID;
 
         AssertNumPreparedStatements(conn, 0);
@@ -564,8 +553,6 @@ public class PrepareTests: TestBase
         }
         AssertNumPreparedStatements(conn, 1, "Prepared statement deallocated");
         Assert.That(GetPreparedStatements(conn).Single(), Is.EqualTo(stmtName), "Prepared statement name changed unexpectedly");
-
-        NpgsqlConnection.ClearPool(conn);
     }
 
     [Test, Description("Makes sure that calling Prepare() twice on a command does not deallocate or make a new one after the first prepared statement when command does not change")]
@@ -672,7 +659,7 @@ public class PrepareTests: TestBase
         using (var conn = OpenConnectionAndUnprepare())
         using (var cmd = new NpgsqlCommand("SELECT @p", conn))
         {
-            throw new NotImplementedException("Problem: currentl setting NpgsqlParameter.Value clears/invalidates...");
+            throw new NotImplementedException("Problem: current setting NpgsqlParameter.Value clears/invalidates...");
             cmd.Parameters.Add(new NpgsqlParameter("p", NpgsqlDbType.Integer));
             cmd.Prepare(true);
 
@@ -741,8 +728,8 @@ public class PrepareTests: TestBase
     [Test]
     public void Multiplexing_not_supported()
     {
-        var builder = new NpgsqlConnectionStringBuilder(ConnectionString) { Multiplexing = true };
-        using var conn = OpenConnection(builder);
+        using var dataSource = CreateDataSource(csb => csb.Multiplexing = true);
+        using var conn = dataSource.OpenConnection();
         using var cmd = new NpgsqlCommand("SELECT 1", conn);
 
         Assert.That(() => cmd.Prepare(), Throws.Exception.TypeOf<NotSupportedException>());
@@ -750,15 +737,14 @@ public class PrepareTests: TestBase
     }
 
     [Test]
-    public async Task Explicitly_prepared_statement_invalidation()
+    public async Task Explicitly_prepared_statement_invalidation([Values] bool prepareAfterError, [Values] bool unprepareAfterError)
     {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
+        await using var dataSource = CreateDataSource(csb =>
         {
-            MaxAutoPrepare = 10,
-            AutoPrepareMinUsages = 2
-        };
-
-        await using var connection = await OpenConnectionAsync(csb);
+            csb.MaxAutoPrepare = 10;
+            csb.AutoPrepareMinUsages = 2;
+        });
+        await using var connection = await dataSource.OpenConnectionAsync();
         var table = await CreateTempTable(connection, "foo int");
 
         await using var command = new NpgsqlCommand($"SELECT * FROM {table}", connection);
@@ -769,23 +755,172 @@ public class PrepareTests: TestBase
         // Since we've changed the table schema, the next execution of the prepared statement will error with 0A000
         var exception = Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync())!;
         Assert.That(exception.SqlState, Is.EqualTo(PostgresErrorCodes.FeatureNotSupported)); // cached plan must not change result type
+        Assert.IsFalse(command.IsPrepared);
+
+        if (unprepareAfterError)
+        {
+            // Just check that calling unprepare after error doesn't break anything
+            await command.UnprepareAsync();
+            Assert.IsFalse(command.IsPrepared);
+        }
+
+        if (prepareAfterError)
+        {
+            // If we explicitly prepare after error, we should replace the previous prepared statement with a new one
+            await command.PrepareAsync();
+            Assert.IsTrue(command.IsPrepared);
+        }
 
         // However, Npgsql should invalidate the prepared statement in this case, so the next execution should work
         Assert.DoesNotThrowAsync(() => command.ExecuteNonQueryAsync());
 
-        // The command is unprepared, though. It's the user's responsibility to re-prepare if they wish.
-        Assert.False(command.IsPrepared);
+        if (!prepareAfterError)
+        {
+            // The command is unprepared, though. It's the user's responsibility to re-prepare if they wish.
+            Assert.False(command.IsPrepared);
+        }
     }
 
-    NpgsqlConnection OpenConnectionAndUnprepare(string? connectionString = null)
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/4920")]
+    public async Task Explicit_prepare_unprepare_many_queries()
     {
-        var conn = OpenConnection(connectionString);
+        // Set a specific buffer's size to trigger #4920
+        await using var dataSource = CreateDataSource(csb => csb.WriteBufferSize = 5002);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+
+        cmd.CommandText = string.Join(';', Enumerable.Range(1, 500).Select(x => $"SELECT {x}"));
+        await cmd.PrepareAsync();
+        await cmd.UnprepareAsync();
+    }
+
+    [Test]
+    public async Task Explicitly_prepared_batch_sends_prepared_queries()
+    {
+        await using var postmaster = PgPostmasterMock.Start(ConnectionString);
+        await using var dataSource = CreateDataSource(postmaster.ConnectionString);
+
+        await using var conn = await dataSource.OpenConnectionAsync();
+        var server = await postmaster.WaitForServerConnection();
+
+        await using var batch = new NpgsqlBatch(conn)
+        {
+            BatchCommands = { new("SELECT 1"), new("SELECT 2") }
+        };
+
+        var prepareTask = batch.PrepareAsync();
+
+        await server.ExpectMessages(
+            FrontendMessageCode.Parse, FrontendMessageCode.Describe,
+            FrontendMessageCode.Parse, FrontendMessageCode.Describe,
+            FrontendMessageCode.Sync);
+
+        await server
+            .WriteParseComplete()
+            .WriteParameterDescription(new FieldDescription(Int4Oid))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
+            .WriteParseComplete()
+            .WriteParameterDescription(new FieldDescription(Int4Oid))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
+            .WriteReadyForQuery()
+            .FlushAsync();
+
+        await prepareTask;
+
+        for (var i = 0; i < 2; i++)
+            await ExecutePreparedBatch(batch, server);
+
+        async Task ExecutePreparedBatch(NpgsqlBatch batch, PgServerMock server)
+        {
+            var executeBatchTask = batch.ExecuteNonQueryAsync();
+
+            await server.ExpectMessages(
+                FrontendMessageCode.Bind, FrontendMessageCode.Execute,
+                FrontendMessageCode.Bind, FrontendMessageCode.Execute,
+                FrontendMessageCode.Sync);
+
+            await server
+                .WriteBindComplete()
+                .WriteCommandComplete()
+                .WriteBindComplete()
+                .WriteCommandComplete()
+                .WriteReadyForQuery()
+                .FlushAsync();
+
+            await executeBatchTask;
+        }
+    }
+
+    [Test]
+    public async Task Auto_prepared_batch_sends_prepared_queries()
+    {
+        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
+        {
+            AutoPrepareMinUsages = 1,
+            MaxAutoPrepare = 10
+        };
+        await using var postmaster = PgPostmasterMock.Start(csb.ConnectionString);
+        await using var dataSource = CreateDataSource(postmaster.ConnectionString);
+
+        await using var conn = await dataSource.OpenConnectionAsync();
+        var server = await postmaster.WaitForServerConnection();
+
+        await using var batch = new NpgsqlBatch(conn)
+        {
+            BatchCommands = { new("SELECT 1"), new("SELECT 2") }
+        };
+
+        var firstBatchExecuteTask = batch.ExecuteNonQueryAsync();
+
+        await server.ExpectMessages(
+            FrontendMessageCode.Parse, FrontendMessageCode.Bind, FrontendMessageCode.Describe, FrontendMessageCode.Execute,
+            FrontendMessageCode.Parse, FrontendMessageCode.Bind, FrontendMessageCode.Describe, FrontendMessageCode.Execute,
+            FrontendMessageCode.Sync);
+
+        await server
+            .WriteParseComplete()
+            .WriteBindComplete()
+            .WriteRowDescription(new FieldDescription(Int4Oid))
+            .WriteCommandComplete()
+            .WriteParseComplete()
+            .WriteBindComplete()
+            .WriteRowDescription(new FieldDescription(Int4Oid))
+            .WriteCommandComplete()
+            .WriteReadyForQuery()
+            .FlushAsync();
+
+        await firstBatchExecuteTask;
+
+        for (var i = 0; i < 2; i++)
+            await ExecutePreparedBatch(batch, server);
+
+        async Task ExecutePreparedBatch(NpgsqlBatch batch, PgServerMock server)
+        {
+            var executeBatchTask = batch.ExecuteNonQueryAsync();
+
+            await server.ExpectMessages(
+                FrontendMessageCode.Bind, FrontendMessageCode.Execute,
+                FrontendMessageCode.Bind, FrontendMessageCode.Execute,
+                FrontendMessageCode.Sync);
+
+            await server
+                .WriteBindComplete()
+                .WriteCommandComplete()
+                .WriteBindComplete()
+                .WriteCommandComplete()
+                .WriteReadyForQuery()
+                .FlushAsync();
+
+            await executeBatchTask;
+        }
+    }
+
+    NpgsqlConnection OpenConnectionAndUnprepare()
+    {
+        var conn = OpenConnection();
         conn.UnprepareAll();
         return conn;
     }
-
-    NpgsqlConnection OpenConnectionAndUnprepare(NpgsqlConnectionStringBuilder csb)
-        => OpenConnectionAndUnprepare(csb.ToString());
 
     void AssertNumPreparedStatements(NpgsqlConnection conn, int expected)
         => Assert.That(conn.ExecuteScalar("SELECT COUNT(*) FROM pg_prepared_statements WHERE statement NOT LIKE '%FROM pg_prepared_statements%'"), Is.EqualTo(expected));

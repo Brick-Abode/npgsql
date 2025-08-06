@@ -15,23 +15,22 @@ sealed class NpgsqlDataSourceCommand : NpgsqlCommand
     }
 
     // For NpgsqlBatch only
-    internal NpgsqlDataSourceCommand(int batchCommandCapacity, NpgsqlConnection connection)
-        : base(batchCommandCapacity, connection)
+    internal NpgsqlDataSourceCommand(NpgsqlBatch batch, int batchCommandCapacity, NpgsqlConnection connection)
+        : base(batch, batchCommandCapacity, connection)
     {
     }
 
     internal override async ValueTask<NpgsqlDataReader> ExecuteReader(
-        CommandBehavior behavior,
-        bool async,
+        bool async, CommandBehavior behavior,
         CancellationToken cancellationToken)
     {
-        await InternalConnection!.Open(async, cancellationToken);
+        await InternalConnection!.Open(async, cancellationToken).ConfigureAwait(false);
 
         try
         {
             return await base.ExecuteReader(
-                    behavior | CommandBehavior.CloseConnection,
                     async,
+                    behavior | CommandBehavior.CloseConnection,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -39,7 +38,7 @@ sealed class NpgsqlDataSourceCommand : NpgsqlCommand
         {
             try
             {
-                await InternalConnection.Close(async);
+                await InternalConnection.Close(async).ConfigureAwait(false);
             }
             catch
             {

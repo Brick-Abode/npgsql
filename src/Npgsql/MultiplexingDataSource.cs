@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -16,10 +17,10 @@ sealed class MultiplexingDataSource : PoolingDataSource
 
     readonly bool _autoPrepare;
 
-    internal volatile bool StartupCheckPerformed;
-
     readonly ChannelReader<NpgsqlCommand> _multiplexCommandReader;
     internal ChannelWriter<NpgsqlCommand> MultiplexCommandWriter { get; }
+
+    readonly Task _multiplexWriteLoop;
 
     /// <summary>
     /// When multiplexing is enabled, determines the maximum number of outgoing bytes to buffer before
@@ -32,9 +33,8 @@ sealed class MultiplexingDataSource : PoolingDataSource
 
     internal MultiplexingDataSource(
         NpgsqlConnectionStringBuilder settings,
-        NpgsqlDataSourceConfiguration dataSourceConfig,
-        NpgsqlMultiHostDataSource? parentPool = null)
-        : base(settings, dataSourceConfig, parentPool)
+        NpgsqlDataSourceConfiguration dataSourceConfig)
+        : base(settings, dataSourceConfig)
     {
         Debug.Assert(Settings.Multiplexing);
 
@@ -56,14 +56,15 @@ sealed class MultiplexingDataSource : PoolingDataSource
         _connectionLogger = dataSourceConfig.LoggingConfiguration.ConnectionLogger;
         _commandLogger = dataSourceConfig.LoggingConfiguration.CommandLogger;
 
-        // TODO: Think about cleanup for this, e.g. completing the channel at application shutdown and/or
-        // pool clearing
-        _ = Task.Run(MultiplexingWriteLoop, CancellationToken.None)
+        _multiplexWriteLoop = Task.Run(MultiplexingWriteLoop, CancellationToken.None)
             .ContinueWith(t =>
             {
-                // Note that we *must* observe the exception if the task is faulted.
-                _connectionLogger.LogError(t.Exception, "Exception in multiplexing write loop, this is an Npgsql bug, please file an issue.");
-            }, TaskContinuationOptions.OnlyOnFaulted);
+                if (t.IsFaulted)
+                {
+                    // Note that MultiplexingWriteLoop should never throw an exception - everything should be caught and handled internally.
+                    _connectionLogger.LogError(t.Exception, "Exception in multiplexing write loop, this is an Npgsql bug, please file an issue.");
+                }
+            });
     }
 
     async Task MultiplexingWriteLoop()
@@ -74,15 +75,23 @@ sealed class MultiplexingDataSource : PoolingDataSource
         // on to the next connector.
         Debug.Assert(_multiplexCommandReader != null);
 
-        var stats = new MultiplexingStats { Stopwatch = new Stopwatch() };
+        var stats = new MultiplexingStats();
 
         while (true)
         {
             NpgsqlConnector? connector;
+            NpgsqlCommand? command;
 
-            // Get a first command out.
-            if (!_multiplexCommandReader.TryRead(out var command))
-                command = await _multiplexCommandReader.ReadAsync();
+            try
+            {
+                // Get a first command out.
+                if (!_multiplexCommandReader.TryRead(out command))
+                    command = await _multiplexCommandReader.ReadAsync().ConfigureAwait(false);
+            }
+            catch (ChannelClosedException)
+            {
+                return;
+            }
 
             try
             {
@@ -98,10 +107,10 @@ sealed class MultiplexingDataSource : PoolingDataSource
                     }
 
                     connector = await OpenNewConnector(
-                        command.Connection!,
+                        command.InternalConnection!,
                         new NpgsqlTimeout(TimeSpan.FromSeconds(Settings.Timeout)),
                         async: true,
-                        CancellationToken.None);
+                        CancellationToken.None).ConfigureAwait(false);
 
                     if (connector != null)
                     {
@@ -173,21 +182,24 @@ sealed class MultiplexingDataSource : PoolingDataSource
             {
                 stats.Reset();
                 connector.FlagAsNotWritableForMultiplexing();
-                command.TraceCommandStart(connector);
+                command.TraceCommandEnrich(connector);
 
                 // Read queued commands and write them to the connector's buffer, for as long as we're
                 // under our write threshold and timer delay.
                 // Note we already have one command we read above, and have already updated the connector's
                 // CommandsInFlightCount. Now write that command.
-                var writtenSynchronously = WriteCommand(connector, command, ref stats);
-
-                while (connector.WriteBuffer.WritePosition < _writeCoalescingBufferThresholdBytes &&
-                       writtenSynchronously &&
-                       _multiplexCommandReader.TryRead(out command))
+                var first = true;
+                bool writtenSynchronously;
+                do
                 {
-                    Interlocked.Increment(ref connector.CommandsInFlightCount);
+                    if (first)
+                        first = false;
+                    else
+                        Interlocked.Increment(ref connector.CommandsInFlightCount);
                     writtenSynchronously = WriteCommand(connector, command, ref stats);
-                }
+                } while (connector.WriteBuffer.WritePosition < _writeCoalescingBufferThresholdBytes &&
+                         writtenSynchronously &&
+                         _multiplexCommandReader.TryRead(out command));
 
                 // If all commands were written synchronously (good path), complete the write here, flushing
                 // and updating statistics. If not, CompleteRewrite is scheduled to run later, when the async
@@ -201,6 +213,7 @@ sealed class MultiplexingDataSource : PoolingDataSource
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         bool WriteCommand(NpgsqlConnector connector, NpgsqlCommand command, ref MultiplexingStats stats)
         {
             // Note: this method *never* awaits on I/O - doing so would suspend all outgoing multiplexing commands
@@ -251,12 +264,12 @@ sealed class MultiplexingDataSource : PoolingDataSource
 
                     if (t.IsFaulted)
                     {
-                        FailWrite(conn, t.Exception!.UnwrapAggregate());
+                        FailWrite(conn, t.Exception!.InnerException!);
                         return;
                     }
 
                     // There's almost certainly more buffered outgoing data for the command, after the flush
-                    // occured. Complete the write, which will flush again (and update statistics).
+                    // occurred. Complete the write, which will flush again (and update statistics).
                     try
                     {
                         Flush(conn, ref clonedStats);
@@ -272,7 +285,8 @@ sealed class MultiplexingDataSource : PoolingDataSource
 
             default:
                 Debug.Fail("When writing command to connector, task is in invalid state " + task.Status);
-                throw new Exception("When writing command to connector, task is in invalid state " + task.Status);
+                ThrowHelper.ThrowNpgsqlException("When writing command to connector, task is in invalid state " + task.Status);
+                return false;
             }
         }
 
@@ -303,7 +317,7 @@ sealed class MultiplexingDataSource : PoolingDataSource
                     var conn = (NpgsqlConnector)o!;
                     if (t.IsFaulted)
                     {
-                        FailWrite(conn, t.Exception!.UnwrapAggregate());
+                        FailWrite(conn, t.Exception!.InnerException!);
                         return;
                     }
 
@@ -315,7 +329,8 @@ sealed class MultiplexingDataSource : PoolingDataSource
 
             default:
                 Debug.Fail("When flushing, task is in invalid state " + task.Status);
-                throw new Exception("When flushing, task is in invalid state " + task.Status);
+                ThrowHelper.ThrowNpgsqlException("When flushing, task is in invalid state " + task.Status);
+                return;
             }
         }
 
@@ -343,27 +358,40 @@ sealed class MultiplexingDataSource : PoolingDataSource
             // for over-capacity write.
             connector.FlagAsWritableForMultiplexing();
 
-            NpgsqlEventSource.Log.MultiplexingBatchSent(stats.NumCommands, stats.Stopwatch);
+            NpgsqlEventSource.Log.MultiplexingBatchSent(stats.NumCommands, Stopwatch.GetElapsedTime(stats.StartTimestamp).Ticks);
         }
 
         // ReSharper disable once FunctionNeverReturns
     }
 
+    protected override void DisposeBase()
+    {
+        MultiplexCommandWriter.Complete(new ObjectDisposedException(nameof(MultiplexingDataSource)));
+        _multiplexWriteLoop.GetAwaiter().GetResult();
+        base.DisposeBase();
+    }
+
+    protected override async ValueTask DisposeAsyncBase()
+    {
+        MultiplexCommandWriter.Complete(new ObjectDisposedException(nameof(MultiplexingDataSource)));
+        await _multiplexWriteLoop.ConfigureAwait(false);
+        await base.DisposeAsyncBase().ConfigureAwait(false);
+    }
+
     struct MultiplexingStats
     {
-        internal Stopwatch Stopwatch;
+        internal long StartTimestamp;
         internal int NumCommands;
 
         internal void Reset()
         {
             NumCommands = 0;
-            Stopwatch.Reset();
+            StartTimestamp = Stopwatch.GetTimestamp();
         }
 
         internal MultiplexingStats Clone()
         {
-            var clone = new MultiplexingStats { Stopwatch = Stopwatch, NumCommands = NumCommands };
-            Stopwatch = new Stopwatch();
+            var clone = new MultiplexingStats { StartTimestamp = StartTimestamp, NumCommands = NumCommands };
             return clone;
         }
     }

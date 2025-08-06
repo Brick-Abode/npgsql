@@ -2,130 +2,69 @@
 using System.ComponentModel;
 using System.Data;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
+using Npgsql.Properties;
 using Npgsql.Util;
 using NpgsqlTypes;
 using NUnit.Framework;
-
 using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests.Types;
 
-/// <remarks>
-/// https://www.postgresql.org/docs/current/static/rangetypes.html
-/// </remarks>
 class RangeTests : MultiplexingTestBase
 {
-    [Test, NUnit.Framework.Description("Resolves a range type handler via the different pathways")]
-    public async Task Range_resolution()
-    {
-        if (IsMultiplexing)
-            Assert.Ignore("Multiplexing, ReloadTypes");
+    static readonly TestCaseData[] RangeTestCases =
+    [
+        new TestCaseData(new NpgsqlRange<int>(1, true, 10, false), "[1,10)", "int4range", NpgsqlDbType.IntegerRange)
+            .SetName("IntegerRange"),
+        new TestCaseData(new NpgsqlRange<long>(1, true, 10, false), "[1,10)", "int8range", NpgsqlDbType.BigIntRange)
+            .SetName("BigIntRange"),
+        new TestCaseData(new NpgsqlRange<decimal>(1, true, 10, false), "[1,10)", "numrange", NpgsqlDbType.NumericRange)
+            .SetName("NumericRange"),
+        new TestCaseData(new NpgsqlRange<DateTime>(
+                    new DateTime(2020, 1, 1, 12, 0, 0), true,
+                    new DateTime(2020, 1, 3, 13, 0, 0), false),
+                """["2020-01-01 12:00:00","2020-01-03 13:00:00")""", "tsrange", NpgsqlDbType.TimestampRange)
+            .SetName("TimestampRange"),
+        // Note that the below text representations are local (according to TimeZone, which is set to Europe/Berlin in this test class),
+        // because that's how PG does timestamptz *text* representation.
+        new TestCaseData(new NpgsqlRange<DateTime>(
+                    new DateTime(2020, 1, 1, 12, 0, 0, DateTimeKind.Utc), true,
+                    new DateTime(2020, 1, 3, 13, 0, 0, DateTimeKind.Utc), false),
+                """["2020-01-01 13:00:00+01","2020-01-03 14:00:00+01")""", "tstzrange", NpgsqlDbType.TimestampTzRange)
+            .SetName("TimestampTzRange"),
 
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            ApplicationName = nameof(Range_resolution), // Prevent backend type caching in TypeHandlerRegistry
-            Pooling = false
-        };
+        // Note that numrange is a non-discrete range, and therefore doesn't undergo normalization to inclusive/exclusive in PG
+        new TestCaseData(NpgsqlRange<decimal>.Empty, "empty", "numrange", NpgsqlDbType.NumericRange)
+            .SetName("EmptyRange"),
+        new TestCaseData(new NpgsqlRange<decimal>(1, true, 10, true), "[1,10]", "numrange", NpgsqlDbType.NumericRange)
+            .SetName("Inclusive"),
+        new TestCaseData(new NpgsqlRange<decimal>(1, false, 10, false), "(1,10)", "numrange", NpgsqlDbType.NumericRange)
+            .SetName("Exclusive"),
+        new TestCaseData(new NpgsqlRange<decimal>(1, true, 10, false), "[1,10)", "numrange", NpgsqlDbType.NumericRange)
+            .SetName("InclusiveExclusive"),
+        new TestCaseData(new NpgsqlRange<decimal>(1, false, 10, true), "(1,10]", "numrange", NpgsqlDbType.NumericRange)
+            .SetName("ExclusiveInclusive"),
+        new TestCaseData(new NpgsqlRange<decimal>(1, false, true, 10, false, false), "(,10)", "numrange", NpgsqlDbType.NumericRange)
+            .SetName("InfiniteLowerBound"),
+        new TestCaseData(new NpgsqlRange<decimal>(1, true, false, 10, false, true), "[1,)", "numrange", NpgsqlDbType.NumericRange)
+            .SetName("InfiniteUpperBound")
+    ];
 
-        using var conn = await OpenConnectionAsync(csb);
+    // See more test cases in DateTimeTests
+    [Test, TestCaseSource(nameof(RangeTestCases))]
+    public Task Range<T>(T range, string sqlLiteral, string pgTypeName, NpgsqlDbType? npgsqlDbType)
+        => AssertType(range, sqlLiteral, pgTypeName, npgsqlDbType,
+            // NpgsqlRange<T>[] is mapped to multirange by default, not array, so the built-in AssertType testing for arrays fails
+            // (see below)
+            skipArrayCheck: true);
 
-        // Resolve type by NpgsqlDbType
-        using (var cmd = new NpgsqlCommand("SELECT @p", conn))
-        {
-            cmd.Parameters.AddWithValue("p", NpgsqlDbType.Range | NpgsqlDbType.Integer, DBNull.Value);
-            using (var reader = await cmd.ExecuteReaderAsync())
-            {
-                reader.Read();
-                Assert.That(reader.GetDataTypeName(0), Is.EqualTo("int4range"));
-            }
-        }
-
-        // Resolve type by ClrType (type inference)
-        conn.ReloadTypes();
-        using (var cmd = new NpgsqlCommand("SELECT @p", conn))
-        {
-            cmd.Parameters.Add(new NpgsqlParameter { ParameterName = "p", Value = new NpgsqlRange<int>(3, 5) });
-            using (var reader = await cmd.ExecuteReaderAsync())
-            {
-                reader.Read();
-                Assert.That(reader.GetDataTypeName(0), Is.EqualTo("int4range"));
-            }
-        }
-
-        // Resolve type by DataTypeName
-        conn.ReloadTypes();
-        using (var cmd = new NpgsqlCommand("SELECT @p", conn))
-        {
-            cmd.Parameters.Add(new NpgsqlParameter { ParameterName="p", DataTypeName = "int4range", Value = DBNull.Value });
-            using (var reader = await cmd.ExecuteReaderAsync())
-            {
-                reader.Read();
-                Assert.That(reader.GetDataTypeName(0), Is.EqualTo("int4range"));
-            }
-        }
-
-        // Resolve type by OID (read)
-        conn.ReloadTypes();
-        using (var cmd = new NpgsqlCommand("SELECT int4range(3, 5)", conn))
-        using (var reader = await cmd.ExecuteReaderAsync())
-        {
-            reader.Read();
-            Assert.That(reader.GetDataTypeName(0), Is.EqualTo("int4range"));
-            Assert.That(reader.GetFieldValue<NpgsqlRange<int>>(0), Is.EqualTo(new NpgsqlRange<int>(3, true, 5, false)));
-        }
-    }
-
-    [Test]
-    public async Task Range()
-    {
-        using var conn = await OpenConnectionAsync();
-        using var cmd = new NpgsqlCommand("SELECT @p1, @p2, @p3, @p4", conn);
-        var p1 = new NpgsqlParameter("p1", NpgsqlDbType.Range | NpgsqlDbType.Integer) { Value = NpgsqlRange<int>.Empty };
-        var p2 = new NpgsqlParameter { ParameterName = "p2", Value = new NpgsqlRange<int>(1, 10) };
-        var p3 = new NpgsqlParameter { ParameterName = "p3", Value = new NpgsqlRange<int>(1, false, 10, false) };
-        var p4 = new NpgsqlParameter { ParameterName = "p4", Value = new NpgsqlRange<int>(0, false, true, 10, false, false) };
-        Assert.That(p2.NpgsqlDbType, Is.EqualTo(NpgsqlDbType.Range | NpgsqlDbType.Integer));
-        cmd.Parameters.Add(p1);
-        cmd.Parameters.Add(p2);
-        cmd.Parameters.Add(p3);
-        cmd.Parameters.Add(p4);
-        using var reader = await cmd.ExecuteReaderAsync();
-        reader.Read();
-
-        Assert.That(reader[0].ToString(), Is.EqualTo("empty"));
-        Assert.That(reader[1].ToString(), Is.EqualTo("[1,11)"));
-        Assert.That(reader[2].ToString(), Is.EqualTo("[2,10)"));
-        Assert.That(reader[3].ToString(), Is.EqualTo("(,10)"));
-    }
-
-    [Test]
-    [NonParallelizable]
-    public async Task Range_with_long_subtype()
-    {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            MaxPoolSize = 1
-        };
-        await using var conn = await OpenConnectionAsync(csb);
-
-        var typeName = await GetTempTypeName(conn);
-        await conn.ExecuteNonQueryAsync($"CREATE TYPE {typeName} AS RANGE(subtype=text)");
-        await Task.Yield(); // TODO: fix multiplexing deadlock bug
-        conn.ReloadTypes();
-        Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
-
-        var value = new NpgsqlRange<string>(
-            new string('a', conn.Settings.WriteBufferSize + 10),
-            new string('z', conn.Settings.WriteBufferSize + 10)
-        );
-
-        await using var cmd = new NpgsqlCommand("SELECT @p", conn);
-        cmd.Parameters.Add(new NpgsqlParameter("p", NpgsqlDbType.Range | NpgsqlDbType.Text) { Value = value });
-        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess);
-        await reader.ReadAsync();
-        Assert.That(reader[0], Is.EqualTo(value));
-    }
+    // This re-executes the same scenario as above, but with isDefaultForWriting: false and without skipArrayCheck: true.
+    // This tests coverage of range arrays (as opposed to multiranges).
+    [Test, TestCaseSource(nameof(RangeTestCases))]
+    public Task Range_array<T>(T range, string sqlLiteral, string pgTypeName, NpgsqlDbType? npgsqlDbType)
+        => AssertType(range, sqlLiteral, pgTypeName, npgsqlDbType, isDefaultForWriting: false);
 
     [Test]
     public void Equality_finite()
@@ -158,7 +97,7 @@ class RangeTests : MultiplexingTestBase
     {
         var r1 = new NpgsqlRange<int>(0, false, true, 1, false, false);
 
-        //different upper bound (lower bound shoulnd't matter since it is infinite)
+        //different upper bound (lower bound shouldn't matter since it is infinite)
         var r2 = new NpgsqlRange<int>(1, false, true, 2, false, false);
         Assert.IsFalse(r1 == r2);
 
@@ -225,6 +164,62 @@ class RangeTests : MultiplexingTestBase
         Assert.That(actual, Is.EqualTo(range));
     }
 
+    [Test]
+    [NonParallelizable]
+    public async Task Unmapped_range_with_mapped_subtype()
+    {
+        await using var dataSource = CreateDataSource(b => b.EnableUnmappedTypes().ConnectionStringBuilder.MaxPoolSize = 1);
+        await using var conn = await dataSource.OpenConnectionAsync();
+
+        var typeName = await GetTempTypeName(conn);
+        await conn.ExecuteNonQueryAsync($"CREATE TYPE {typeName} AS RANGE(subtype=text)");
+        await Task.Yield(); // TODO: fix multiplexing deadlock bug
+        conn.ReloadTypes();
+        Assert.That(await conn.ExecuteScalarAsync("SELECT 1"), Is.EqualTo(1));
+
+        var value = new NpgsqlRange<char[]>(
+            new string('a', conn.Settings.WriteBufferSize + 10).ToCharArray(),
+            new string('z', conn.Settings.WriteBufferSize + 10).ToCharArray()
+        );
+
+        await using var cmd = new NpgsqlCommand("SELECT @p", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { DataTypeName = typeName, ParameterName = "p", Value = value });
+        await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess);
+        await reader.ReadAsync();
+
+        Assert.That(reader.GetFieldType(0), Is.EqualTo(typeof(NpgsqlRange<string>)));
+        var result = reader.GetFieldValue<NpgsqlRange<char[]>>(0);
+        Assert.That(result, Is.EqualTo(value).Using<NpgsqlRange<char[]>>((actual, expected) =>
+            actual.LowerBound!.SequenceEqual(expected.LowerBound!) && actual.UpperBound!.SequenceEqual(expected.UpperBound!)));
+    }
+
+    [Test]
+    public async Task Unmapped_range_supported_only_with_EnableUnmappedTypes()
+    {
+        await using var connection = await DataSource.OpenConnectionAsync();
+        var rangeType = await GetTempTypeName(connection);
+        await connection.ExecuteNonQueryAsync($"CREATE TYPE {rangeType} AS RANGE(subtype=text)");
+        await Task.Yield(); // TODO: fix multiplexing deadlock bug
+        await connection.ReloadTypesAsync();
+
+        var errorMessage = string.Format(
+            NpgsqlStrings.UnmappedRangesNotEnabled,
+            nameof(NpgsqlSlimDataSourceBuilder.EnableUnmappedTypes),
+            nameof(NpgsqlDataSourceBuilder));
+
+        var exception = await AssertTypeUnsupportedWrite(new NpgsqlRange<string>("bar", "foo"), rangeType);
+        Assert.IsInstanceOf<NotSupportedException>(exception.InnerException);
+        Assert.That(exception.InnerException!.Message, Is.EqualTo(errorMessage));
+
+        exception = await AssertTypeUnsupportedRead("""["bar","foo"]""", rangeType);
+        Assert.IsInstanceOf<NotSupportedException>(exception.InnerException);
+        Assert.That(exception.InnerException!.Message, Is.EqualTo(errorMessage));
+
+        exception = await AssertTypeUnsupportedRead<NpgsqlRange<string>>("""["bar","foo"]""", rangeType);
+        Assert.IsInstanceOf<NotSupportedException>(exception.InnerException);
+        Assert.That(exception.InnerException!.Message, Is.EqualTo(errorMessage));
+    }
+
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/4441")]
     public async Task Array_of_range()
     {
@@ -248,19 +243,42 @@ class RangeTests : MultiplexingTestBase
                 new(3, lowerBoundIsInclusive: true, 4, upperBoundIsInclusive: false),
                 new(5, lowerBoundIsInclusive: true, 6, upperBoundIsInclusive: false)
             },
-            @"{""[3,4)"",""[5,6)""}",
+            """{"[3,4)","[5,6)"}""",
             "int4range[]",
             NpgsqlDbType.IntegerRange | NpgsqlDbType.Array,
             isDefaultForWriting: !supportsMultirange,
             isNpgsqlDbTypeInferredFromClrType: false);
     }
 
-    [OneTimeSetUp]
-    public async Task OneTimeSetUp()
+    [Test]
+    public async Task Ranges_not_supported_by_default_on_NpgsqlSlimSourceBuilder()
     {
-        using var conn = await OpenConnectionAsync();
-        MinimumPgVersion(conn, "9.2.0");
+        var errorMessage = string.Format(
+            NpgsqlStrings.RangesNotEnabled, nameof(NpgsqlSlimDataSourceBuilder.EnableRanges), nameof(NpgsqlSlimDataSourceBuilder));
+
+        var dataSourceBuilder = new NpgsqlSlimDataSourceBuilder(ConnectionString);
+        await using var dataSource = dataSourceBuilder.Build();
+
+        var exception = await AssertTypeUnsupportedRead<NpgsqlRange<int>>("[1,10)", "int4range", dataSource);
+        Assert.That(exception.InnerException!.Message, Is.EqualTo(errorMessage));
+        exception = await AssertTypeUnsupportedWrite(new NpgsqlRange<int>(1, true, 10, false), "int4range", dataSource);
+        Assert.That(exception.InnerException!.Message, Is.EqualTo(errorMessage));
     }
+
+    [Test]
+    public async Task NpgsqlSlimSourceBuilder_EnableRanges()
+    {
+        var dataSourceBuilder = new NpgsqlSlimDataSourceBuilder(ConnectionString);
+        dataSourceBuilder.EnableRanges();
+        await using var dataSource = dataSourceBuilder.Build();
+
+        await AssertType(
+            dataSource,
+            new NpgsqlRange<int>(1, true, 10, false), "[1,10)", "int4range", NpgsqlDbType.IntegerRange, skipArrayCheck: true);
+    }
+
+    protected override NpgsqlConnection OpenConnection()
+        => throw new NotSupportedException();
 
     #region ParseTests
 
@@ -388,14 +406,10 @@ class RangeTests : MultiplexingTestBase
         string? Value { get; }
 
         SimpleType(string? value)
-        {
-            Value = value;
-        }
+            => Value = value;
 
         public override string? ToString()
-        {
-            return Value;
-        }
+            => Value;
 
         class SimpleTypeConverter : TypeConverter
         {
@@ -420,31 +434,40 @@ class RangeTests : MultiplexingTestBase
         new object[][]
         {
             // (2018-05-17, 2018-05-18)
-            new object[] { new NpgsqlRange<DateTime>(May_17_2018, false, false, May_18_2018, false, false) },
+            [new NpgsqlRange<DateTime>(May_17_2018, false, false, May_18_2018, false, false)],
 
             // [2018-05-17, 2018-05-18]
-            new object[] { new NpgsqlRange<DateTime>(May_17_2018, true, false, May_18_2018, true, false) },
+            [new NpgsqlRange<DateTime>(May_17_2018, true, false, May_18_2018, true, false)],
 
             // [2018-05-17, 2018-05-18)
-            new object[] { new NpgsqlRange<DateTime>(May_17_2018, true, false, May_18_2018, false, false) },
+            [new NpgsqlRange<DateTime>(May_17_2018, true, false, May_18_2018, false, false)],
 
             // (2018-05-17, 2018-05-18]
-            new object[] { new NpgsqlRange<DateTime>(May_17_2018, false, false, May_18_2018, true, false) },
+            [new NpgsqlRange<DateTime>(May_17_2018, false, false, May_18_2018, true, false)],
 
             // (,)
-            new object[] { new NpgsqlRange<DateTime>(default, false, true, default, false, true) },
-            new object[] { new NpgsqlRange<DateTime>(May_17_2018, false, true, May_18_2018, false, true) },
+            [new NpgsqlRange<DateTime>(default, false, true, default, false, true)],
+            [new NpgsqlRange<DateTime>(May_17_2018, false, true, May_18_2018, false, true)],
 
             // (2018-05-17,)
-            new object[] { new NpgsqlRange<DateTime>(May_17_2018, false, false, default, false, true) },
-            new object[] { new NpgsqlRange<DateTime>(May_17_2018, false, false, May_18_2018, false, true) },
+            [new NpgsqlRange<DateTime>(May_17_2018, false, false, default, false, true)],
+            [new NpgsqlRange<DateTime>(May_17_2018, false, false, May_18_2018, false, true)],
 
             // (,2018-05-18)
-            new object[] { new NpgsqlRange<DateTime>(default, false, true, May_18_2018, false, false) },
-            new object[] { new NpgsqlRange<DateTime>(May_17_2018, false, true, May_18_2018, false, false) }
+            [new NpgsqlRange<DateTime>(default, false, true, May_18_2018, false, false)],
+            [new NpgsqlRange<DateTime>(May_17_2018, false, true, May_18_2018, false, false)]
         };
 
     #endregion
 
-    public RangeTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
+    protected override NpgsqlDataSource DataSource { get; }
+
+    public RangeTests(MultiplexingMode multiplexingMode) : base(multiplexingMode)
+        => DataSource = CreateDataSource(builder =>
+        {
+            builder.ConnectionStringBuilder.Timezone = "Europe/Berlin";
+        });
+
+    [OneTimeTearDown]
+    public void TearDown() => DataSource.Dispose();
 }

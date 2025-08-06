@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Threading.Tasks;
 using NpgsqlTypes;
@@ -13,13 +14,43 @@ public class DateTimeTests : TestBase
     #region Date
 
     [Test]
+    public Task Date_as_DateOnly()
+        => AssertType(new DateOnly(2020, 10, 1), "2020-10-01", "date", NpgsqlDbType.Date, DbType.Date);
+
+    [Test]
     public Task Date_as_DateTime()
-        => AssertType(new DateTime(2020, 10, 1), "2020-10-01", "date", NpgsqlDbType.Date, DbType.Date, isDefaultForWriting: false);
+        => AssertType(new DateTime(2020, 10, 1), "2020-10-01", "date", NpgsqlDbType.Date, DbType.Date, isDefault: false);
+
+    [Test]
+    public Task Date_as_DateTime_with_date_and_time_before_2000()
+        => AssertTypeWrite(new DateTime(1980, 10, 1, 11, 0, 0), "1980-10-01", "date", NpgsqlDbType.Date, DbType.Date, isDefault: false);
 
     // Internal PostgreSQL representation (days since 2020-01-01), for out-of-range values.
     [Test]
     public Task Date_as_int()
         => AssertType(7579, "2020-10-01", "date", NpgsqlDbType.Date, DbType.Date, isDefault: false);
+
+    [Test]
+    public Task Daterange_as_NpgsqlRange_of_DateOnly()
+        => AssertType(
+            new NpgsqlRange<DateOnly>(new(2002, 3, 4), true, new(2002, 3, 6), false),
+            "[2002-03-04,2002-03-06)",
+            "daterange",
+            NpgsqlDbType.DateRange,
+            skipArrayCheck: true); // NpgsqlRange<T>[] is mapped to multirange by default, not array; test separately
+
+    [Test]
+    public Task Daterange_array_as_NpgsqlRange_of_DateOnly_array()
+        => AssertType(
+            new[]
+            {
+                new NpgsqlRange<DateOnly>(new(2002, 3, 4), true, new(2002, 3, 6), false),
+                new NpgsqlRange<DateOnly>(new(2002, 3, 8), true, new(2002, 3, 9), false)
+            },
+            """{"[2002-03-04,2002-03-06)","[2002-03-08,2002-03-09)"}""",
+            "daterange[]",
+            NpgsqlDbType.DateRange | NpgsqlDbType.Array,
+            isDefaultForWriting: false);
 
     [Test]
     public Task Daterange_as_NpgsqlRange_of_DateTime()
@@ -28,7 +59,24 @@ public class DateTimeTests : TestBase
             "[2002-03-04,2002-03-06)",
             "daterange",
             NpgsqlDbType.DateRange,
-            isDefaultForWriting: false);
+            isDefault: false);
+
+    [Test]
+    public async Task Datemultirange_as_array_of_NpgsqlRange_of_DateOnly()
+    {
+        await using var conn = await OpenConnectionAsync();
+        MinimumPgVersion(conn, "14.0", "Multirange types were introduced in PostgreSQL 14");
+
+        await AssertType(
+            new[]
+            {
+                new NpgsqlRange<DateOnly>(new(2002, 3, 4), true, new(2002, 3, 6), false),
+                new NpgsqlRange<DateOnly>(new(2002, 3, 8), true, new(2002, 3, 11), false)
+            },
+            "{[2002-03-04,2002-03-06),[2002-03-08,2002-03-11)}",
+            "datemultirange",
+            NpgsqlDbType.DateMultirange);
+    }
 
     [Test]
     public async Task Datemultirange_as_array_of_NpgsqlRange_of_DateTime()
@@ -45,45 +93,21 @@ public class DateTimeTests : TestBase
             "{[2002-03-04,2002-03-06),[2002-03-08,2002-03-11)}",
             "datemultirange",
             NpgsqlDbType.DateMultirange,
-            isDefaultForWriting: false);
+            isDefault: false);
     }
-
-#if NET6_0_OR_GREATER
-    [Test]
-    public Task Date_as_DateOnly()
-        => AssertType(new DateOnly(2020, 10, 1), "2020-10-01", "date", NpgsqlDbType.Date, DbType.Date, isDefaultForReading: false);
-
-    [Test]
-    public Task Daterange_as_NpgsqlRange_of_DateOnly()
-        => AssertType(
-            new NpgsqlRange<DateOnly>(new(2002, 3, 4), true, new(2002, 3, 6), false),
-            "[2002-03-04,2002-03-06)",
-            "daterange",
-            NpgsqlDbType.DateRange,
-            isDefaultForReading: false);
-
-    [Test]
-    public async Task Datemultirange_as_array_of_NpgsqlRange_of_DateOnly()
-    {
-        await using var conn = await OpenConnectionAsync();
-        MinimumPgVersion(conn, "14.0", "Multirange types were introduced in PostgreSQL 14");
-
-        await  AssertType(
-            new[]
-            {
-                new NpgsqlRange<DateOnly>(new(2002, 3, 4), true, new(2002, 3, 6), false),
-                new NpgsqlRange<DateOnly>(new(2002, 3, 8), true, new(2002, 3, 11), false)
-            },
-            "{[2002-03-04,2002-03-06),[2002-03-08,2002-03-11)}",
-            "datemultirange",
-            NpgsqlDbType.DateMultirange,
-            isDefaultForReading: false);
-    }
-#endif
 
     #endregion
 
     #region Time
+
+    [Test]
+    public Task Time_as_TimeOnly()
+        => AssertType(
+            new TimeOnly(10, 45, 34, 500),
+            "10:45:34.5",
+            "time without time zone",
+            NpgsqlDbType.Time,
+            DbType.Time);
 
     [Test]
     public Task Time_as_TimeSpan()
@@ -93,64 +117,57 @@ public class DateTimeTests : TestBase
             "time without time zone",
             NpgsqlDbType.Time,
             DbType.Time,
-            isDefaultForWriting: false);
-
-#if NET6_0_OR_GREATER
-    [Test]
-    public Task Time_as_TimeOnly()
-        => AssertType(
-            new TimeOnly(10, 45, 34, 500),
-            "10:45:34.5",
-            "time without time zone",
-            NpgsqlDbType.Time,
-            DbType.Time,
-            isDefaultForReading: false);
-#endif
+            isDefault: false);
 
     #endregion
 
     #region Time with timezone
 
-    [Test]
-    public async Task TimeTz_as_DateTimeOffset()
-    {
-        await AssertTypeRead("13:03:45.51+02",
-            "time with time zone", new DateTimeOffset(1, 1, 2, 13, 3, 45, 510, TimeSpan.FromHours(2)));
+    static readonly TestCaseData[] TimeTzValues =
+    [
+        new TestCaseData(new DateTimeOffset(1, 1, 2, 13, 3, 45, 510, TimeSpan.FromHours(2)), "13:03:45.51+02")
+            .SetName("Timezone"),
+        new TestCaseData(new DateTimeOffset(1, 1, 2, 1, 0, 45, 510, TimeSpan.FromHours(-3)), "01:00:45.51-03")
+            .SetName("Negative_timezone"),
+        new TestCaseData(new DateTimeOffset(1212720130000, TimeSpan.Zero), "09:41:12.013+00")
+            .SetName("Utc"),
+        new TestCaseData(new DateTimeOffset(1, 1, 2, 1, 0, 0, new TimeSpan(0, 2, 0, 0)), "01:00:00+02")
+            .SetName("Before_utc_zero")
+    ];
 
-        await AssertTypeWrite(
-            new DateTimeOffset(1, 1, 1, 13, 3, 45, 510, TimeSpan.FromHours(2)),
-            "13:03:45.51+02",
-            "time with time zone",
-            NpgsqlDbType.TimeTz,
-            isDefault: false);
-    }
-
-    [Test]
-    public Task TimeTz_before_utc_zero()
-        => AssertTypeRead("01:00:00+02",
-            "time with time zone", new DateTimeOffset(1, 1, 2, 1, 0, 0, new TimeSpan(0, 2, 0, 0)));
+    [Test, TestCaseSource(nameof(TimeTzValues))]
+    public Task TimeTz_as_DateTimeOffset(DateTimeOffset time, string sqlLiteral)
+        => AssertType(time, sqlLiteral, "time with time zone", NpgsqlDbType.TimeTz, isDefault: false);
 
     #endregion
 
     #region Timestamp
 
     static readonly TestCaseData[] TimestampValues =
-    {
+    [
         new TestCaseData(new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Unspecified), "1998-04-12 13:26:38")
             .SetName("Timestamp_pre2000"),
         new TestCaseData(new DateTime(2015, 1, 27, 8, 45, 12, 345, DateTimeKind.Unspecified), "2015-01-27 08:45:12.345")
             .SetName("Timestamp_post2000"),
         new TestCaseData(new DateTime(2013, 7, 25, 0, 0, 0, DateTimeKind.Unspecified), "2013-07-25 00:00:00")
             .SetName("Timestamp_date_only")
-    };
+    ];
 
     [Test, TestCaseSource(nameof(TimestampValues))]
-    public Task Timestamp_as_DateTime(DateTime dateTime, string sqlLiteral)
-        => AssertType(dateTime, sqlLiteral, "timestamp without time zone", NpgsqlDbType.Timestamp, DbType.DateTime2);
+    public async Task Timestamp_as_DateTime(DateTime dateTime, string sqlLiteral)
+    {
+        await AssertType(dateTime, sqlLiteral, "timestamp without time zone", NpgsqlDbType.Timestamp, DbType.DateTime2,
+            // Explicitly check kind as well.
+            comparer: (actual, expected) => actual.Kind == expected.Kind && actual.Equals(expected));
+
+        await AssertType(
+            new List<DateTime> { dateTime, dateTime }, $$"""{"{{sqlLiteral}}","{{sqlLiteral}}"}""", "timestamp without time zone[]", NpgsqlDbType.Timestamp | NpgsqlDbType.Array,
+            isDefaultForReading: false);
+    }
 
     [Test]
     public Task Timestamp_cannot_write_utc_DateTime()
-        => AssertTypeUnsupportedWrite(new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc), "timestamp without time zone");
+        => AssertTypeUnsupportedWrite<DateTime, ArgumentException>(new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc), "timestamp without time zone");
 
     [Test]
     public Task Timestamp_as_long()
@@ -177,7 +194,25 @@ public class DateTimeTests : TestBase
                 new(1998, 4, 12, 15, 26, 38, DateTimeKind.Local)),
             @"[""1998-04-12 13:26:38"",""1998-04-12 15:26:38""]",
             "tsrange",
-            NpgsqlDbType.TimestampRange);
+            NpgsqlDbType.TimestampRange,
+            skipArrayCheck: true); // NpgsqlRange<T>[] is mapped to multirange by default, not array; test separately
+
+    [Test]
+    public Task Tsrange_array_as_NpgsqlRange_of_DateTime_array()
+        => AssertType(
+            new[]
+            {
+                new NpgsqlRange<DateTime>(
+                    new(1998, 4, 12, 13, 26, 38, DateTimeKind.Local),
+                    new(1998, 4, 12, 15, 26, 38, DateTimeKind.Local)),
+                new NpgsqlRange<DateTime>(
+                    new(1998, 4, 13, 13, 26, 38, DateTimeKind.Local),
+                    new(1998, 4, 13, 15, 26, 38, DateTimeKind.Local)),
+            },
+            """{"[\"1998-04-12 13:26:38\",\"1998-04-12 15:26:38\"]","[\"1998-04-13 13:26:38\",\"1998-04-13 15:26:38\"]"}""",
+            "tsrange[]",
+            NpgsqlDbType.TimestampRange | NpgsqlDbType.Array,
+            isDefault: false);
 
     [Test]
     public async Task Tsmultirange_as_array_of_NpgsqlRange_of_DateTime()
@@ -207,18 +242,27 @@ public class DateTimeTests : TestBase
     // Note that the below text representations are local (according to TimeZone, which is set to Europe/Berlin in this test class),
     // because that's how PG does timestamptz *text* representation.
     static readonly TestCaseData[] TimestampTzWriteValues =
-    {
+    [
         new TestCaseData(new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc), "1998-04-12 15:26:38+02")
             .SetName("Timestamptz_write_pre2000"),
         new TestCaseData(new DateTime(2015, 1, 27, 8, 45, 12, 345, DateTimeKind.Utc), "2015-01-27 09:45:12.345+01")
             .SetName("Timestamptz_write_post2000"),
         new TestCaseData(new DateTime(2013, 7, 25, 0, 0, 0, DateTimeKind.Utc), "2013-07-25 02:00:00+02")
             .SetName("Timestamptz_write_date_only")
-    };
+    ];
 
     [Test, TestCaseSource(nameof(TimestampTzWriteValues))]
-    public Task Timestamptz_as_DateTime(DateTime dateTime, string sqlLiteral)
-        => AssertType(dateTime, sqlLiteral, "timestamp with time zone", NpgsqlDbType.TimestampTz, DbType.DateTime);
+    public async Task Timestamptz_as_DateTime(DateTime dateTime, string sqlLiteral)
+    {
+        await AssertType(dateTime, sqlLiteral, "timestamp with time zone", NpgsqlDbType.TimestampTz, DbType.DateTime,
+            // Explicitly check kind as well.
+            comparer: (actual, expected) => actual.Kind == expected.Kind && actual.Equals(expected));
+
+        await AssertType(
+            new List<DateTime> { dateTime, dateTime }, $$"""{"{{sqlLiteral}}","{{sqlLiteral}}"}""", "timestamp with time zone[]", NpgsqlDbType.TimestampTz | NpgsqlDbType.Array,
+            isDefaultForReading: false);
+
+    }
 
     [Test]
     public async Task Timestamptz_infinity_as_DateTime()
@@ -232,8 +276,8 @@ public class DateTimeTests : TestBase
     [Test]
     public async Task Timestamptz_cannot_write_non_utc_DateTime()
     {
-        await AssertTypeUnsupportedWrite(new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Unspecified), "timestamp with time zone");
-        await AssertTypeUnsupportedWrite(new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Local), "timestamp with time zone");
+        await AssertTypeUnsupportedWrite<DateTime, ArgumentException>(new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Unspecified), "timestamp with time zone");
+        await AssertTypeUnsupportedWrite<DateTime, ArgumentException>(new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Local), "timestamp with time zone");
     }
 
     [Test]
@@ -263,7 +307,7 @@ public class DateTimeTests : TestBase
 
     [Test]
     public Task Timestamptz_cannot_write_non_utc_DateTimeOffset()
-        => AssertTypeUnsupportedWrite(new DateTimeOffset(1998, 4, 12, 13, 26, 38, TimeSpan.FromHours(2)));
+        => AssertTypeUnsupportedWrite<DateTimeOffset, ArgumentException>(new DateTimeOffset(1998, 4, 12, 13, 26, 38, TimeSpan.FromHours(2)));
 
     [Test]
     public Task Timestamptz_as_long()
@@ -276,6 +320,24 @@ public class DateTimeTests : TestBase
             isDefault: false);
 
     [Test]
+    public async Task Timestamptz_array_as_DateTimeOffset_array()
+    {
+        var dateTimeOffsets = await AssertType(
+            new[]
+            {
+                new DateTimeOffset(1998, 4, 12, 13, 26, 38, TimeSpan.Zero),
+                new DateTimeOffset(1999, 4, 12, 13, 26, 38, TimeSpan.Zero)
+            },
+            """{"1998-04-12 15:26:38+02","1999-04-12 15:26:38+02"}""",
+            "timestamp with time zone[]",
+            NpgsqlDbType.TimestampTz | NpgsqlDbType.Array,
+            isDefaultForReading: false);
+
+        Assert.That(dateTimeOffsets[0].Offset, Is.EqualTo(TimeSpan.Zero));
+        Assert.That(dateTimeOffsets[1].Offset, Is.EqualTo(TimeSpan.Zero));
+    }
+
+    [Test]
     public Task Tstzrange_as_NpgsqlRange_of_DateTime()
         => AssertType(
             new NpgsqlRange<DateTime>(
@@ -283,7 +345,25 @@ public class DateTimeTests : TestBase
                 new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
             @"[""1998-04-12 15:26:38+02"",""1998-04-12 17:26:38+02""]",
             "tstzrange",
-            NpgsqlDbType.TimestampTzRange);
+            NpgsqlDbType.TimestampTzRange,
+            skipArrayCheck: true); // NpgsqlRange<T>[] is mapped to multirange by default, not array; test separately
+
+    [Test]
+    public Task Tstzrange_array_as_NpgsqlRange_of_DateTime_array()
+        => AssertType(
+            new[]
+            {
+                new NpgsqlRange<DateTime>(
+                    new(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                    new(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
+                new NpgsqlRange<DateTime>(
+                    new(1998, 4, 13, 13, 26, 38, DateTimeKind.Utc),
+                    new(1998, 4, 13, 15, 26, 38, DateTimeKind.Utc)),
+            },
+            """{"[\"1998-04-12 15:26:38+02\",\"1998-04-12 17:26:38+02\"]","[\"1998-04-13 15:26:38+02\",\"1998-04-13 17:26:38+02\"]"}""",
+            "tstzrange[]",
+            NpgsqlDbType.TimestampTzRange | NpgsqlDbType.Array,
+            isDefault: false);
 
     [Test]
     public async Task Tstzmultirange_as_array_of_NpgsqlRange_of_DateTime()
@@ -308,16 +388,15 @@ public class DateTimeTests : TestBase
 
     [Test]
     public Task Cannot_mix_DateTime_Kinds_in_array()
-        => AssertTypeUnsupportedWrite<DateTime[], Exception>(new[]
-        {
+        => AssertTypeUnsupportedWrite<DateTime[], ArgumentException>([
             new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
-            new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Local),
-        });
+            new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Local)
+        ]);
 
 
     [Test]
     public Task Cannot_mix_DateTime_Kinds_in_range()
-        => AssertTypeUnsupportedWrite(new NpgsqlRange<DateTime>(
+        => AssertTypeUnsupportedWrite<NpgsqlRange<DateTime>, ArgumentException>(new NpgsqlRange<DateTime>(
             new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
             new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Local)));
 
@@ -327,15 +406,35 @@ public class DateTimeTests : TestBase
         await using var conn = await OpenConnectionAsync();
         MinimumPgVersion(conn, "14.0", "Multirange types were introduced in PostgreSQL 14");
 
-        await AssertTypeUnsupportedWrite(new[]
-        {
+        await AssertTypeUnsupportedWrite<NpgsqlRange<DateTime>[], ArgumentException>([
+            new NpgsqlRange<DateTime>(
+                new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
+            new NpgsqlRange<DateTime>(
+                new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
+            new NpgsqlRange<DateTime>(
+                new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
+            new NpgsqlRange<DateTime>(
+                new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
+            new NpgsqlRange<DateTime>(
+                new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
+            new NpgsqlRange<DateTime>(
+                new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
+            new NpgsqlRange<DateTime>(
+                new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
             new NpgsqlRange<DateTime>(
                 new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
                 new DateTime(1998, 4, 12, 15, 26, 38, DateTimeKind.Utc)),
             new NpgsqlRange<DateTime>(
                 new DateTime(1998, 4, 13, 13, 26, 38, DateTimeKind.Local),
-                new DateTime(1998, 4, 13, 15, 26, 38, DateTimeKind.Local)),
-        });
+                new DateTime(1998, 4, 13, 15, 26, 38, DateTimeKind.Local))
+        ]);
     }
 
     [Test]
@@ -371,12 +470,25 @@ public class DateTimeTests : TestBase
         Assert.AreEqual(NpgsqlDbType.TimestampTz, dtotimestamptz.NpgsqlDbType);
     }
 
+    [Test]
+    public async Task Array_of_nullable_timestamptz()
+        => await AssertType(
+            new DateTime?[]
+            {
+                new DateTime(1998, 4, 12, 13, 26, 38, DateTimeKind.Utc),
+                null
+            },
+            @"{""1998-04-12 15:26:38+02"",NULL}",
+            "timestamp with time zone[]",
+            NpgsqlDbType.TimestampTz | NpgsqlDbType.Array,
+            isDefault: false);
+
     #endregion
 
     #region Interval
 
     static readonly TestCaseData[] IntervalValues =
-    {
+    [
         new TestCaseData(new TimeSpan(0, 2, 3, 4, 5), "02:03:04.005")
             .SetName("Interval_time_only"),
         new TestCaseData(new TimeSpan(1, 2, 3, 4, 5), "1 day 02:03:04.005")
@@ -385,11 +497,11 @@ public class DateTimeTests : TestBase
             .SetName("Interval_with_many_days"),
         new TestCaseData(new TimeSpan(new TimeSpan(2, 3, 4).Ticks + 10), "02:03:04.000001")
             .SetName("Interval_with_microsecond")
-    };
+    ];
 
     [Test, TestCaseSource(nameof(IntervalValues))]
     public Task Interval_as_TimeSpan(TimeSpan timeSpan, string sqlLiteral)
-        => AssertType(timeSpan, sqlLiteral, "interval", NpgsqlDbType.Interval, isDefaultForWriting: false);
+        => AssertType(timeSpan, sqlLiteral, "interval", NpgsqlDbType.Interval);
 
     [Test]
     public Task Interval_write_as_TimeSpan_truncates_ticks()
@@ -397,8 +509,7 @@ public class DateTimeTests : TestBase
             new TimeSpan(new TimeSpan(2, 3, 4).Ticks + 1),
             "02:03:04",
             "interval",
-            NpgsqlDbType.Interval,
-            isDefault: false);
+            NpgsqlDbType.Interval);
 
     [Test]
     public Task Interval_as_NpgsqlInterval()
@@ -406,22 +517,21 @@ public class DateTimeTests : TestBase
             new NpgsqlInterval(2, 15, 7384005000),
             "2 mons 15 days 02:03:04.005", "interval",
             NpgsqlDbType.Interval,
-            isDefaultForReading: false,
-            isDefaultForWriting: false);
+            isDefaultForReading: false);
 
     [Test]
     public Task Interval_with_months_cannot_read_as_TimeSpan()
-        => AssertTypeUnsupportedRead("1 month 2 days", "interval");
+        => AssertTypeUnsupportedRead<TimeSpan, InvalidCastException>("1 month 2 days", "interval");
 
     #endregion
 
-    protected override async ValueTask<NpgsqlConnection> OpenConnectionAsync(string? connectionString = null)
+    protected override async ValueTask<NpgsqlConnection> OpenConnectionAsync()
     {
-        var conn = await base.OpenConnectionAsync(connectionString);
+        var conn = await base.OpenConnectionAsync();
         await conn.ExecuteNonQueryAsync("SET TimeZone='Europe/Berlin'");
         return conn;
     }
 
-    protected override NpgsqlConnection OpenConnection(string? connectionString = null)
+    protected override NpgsqlConnection OpenConnection()
         => throw new NotSupportedException();
 }

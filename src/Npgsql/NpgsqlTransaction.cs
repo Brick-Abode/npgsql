@@ -132,7 +132,7 @@ public sealed class NpgsqlTransaction : DbTransaction
 
         using (_connector.StartUserAction(cancellationToken))
         {
-            await _connector.ExecuteInternalCommand(PregeneratedMessages.CommitTransaction, async, cancellationToken);
+            await _connector.ExecuteInternalCommand(PregeneratedMessages.CommitTransaction, async, cancellationToken).ConfigureAwait(false);
             LogMessages.CommittedTransaction(_transactionLogger, _connector.Id);
         }
     }
@@ -143,15 +143,8 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// <param name="cancellationToken">
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
     /// </param>
-#if NETSTANDARD2_0
-    public Task CommitAsync(CancellationToken cancellationToken = default)
-#else
     public override Task CommitAsync(CancellationToken cancellationToken = default)
-#endif
-    {
-        using (NoSynchronizationContextScope.Enter())
-            return Commit(true, cancellationToken);
-    }
+        => Commit(async: true, cancellationToken);
 
     #endregion
 
@@ -171,7 +164,7 @@ public sealed class NpgsqlTransaction : DbTransaction
 
         using (_connector.StartUserAction(cancellationToken))
         {
-            await _connector.Rollback(async, cancellationToken);
+            await _connector.Rollback(async, cancellationToken).ConfigureAwait(false);
             LogMessages.RolledBackTransaction(_transactionLogger, _connector.Id);
         }
     }
@@ -182,15 +175,8 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// <param name="cancellationToken">
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
     /// </param>
-#if NETSTANDARD2_0
-    public Task RollbackAsync(CancellationToken cancellationToken = default)
-#else
     public override Task RollbackAsync(CancellationToken cancellationToken = default)
-#endif
-    {
-        using (NoSynchronizationContextScope.Enter())
-            return Rollback(true, cancellationToken);
-    }
+        => Rollback(async: true, cancellationToken);
 
     #endregion
 
@@ -204,16 +190,9 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// This method does not cause a database roundtrip to be made. The savepoint creation statement will instead be sent along with
     /// the next command.
     /// </remarks>
-#if NET5_0_OR_GREATER
     public override void Save(string name)
-#else
-    public void Save(string name)
-#endif
     {
-        if (name == null)
-            throw new ArgumentNullException(nameof(name));
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("name can't be empty", nameof(name));
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         CheckReady();
         if (!_connector.DatabaseInfo.SupportsTransactions)
@@ -230,16 +209,7 @@ public sealed class NpgsqlTransaction : DbTransaction
 
         // Note: savepoint names are PostgreSQL identifiers, and so limited by default to 63 characters.
         // Since we are prepending, we assume below that the statement will always fit in the buffer.
-        _connector.WriteBuffer.WriteByte(FrontendMessageCode.Query);
-        _connector.WriteBuffer.WriteInt32(
-            sizeof(int)  +                               // Message length (including self excluding code)
-            _connector.TextEncoding.GetByteCount("SAVEPOINT ") +
-            _connector.TextEncoding.GetByteCount(name) +
-            sizeof(byte));                               // Null terminator
-
-        _connector.WriteBuffer.WriteString("SAVEPOINT ");
-        _connector.WriteBuffer.WriteString(name);
-        _connector.WriteBuffer.WriteByte(0);
+        _connector.WriteQuery("SAVEPOINT " + name, async: false).GetAwaiter().GetResult();
 
         _connector.PendingPrependedResponses += 2;
     }
@@ -255,22 +225,15 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// This method does not cause a database roundtrip to be made, and will therefore always complete synchronously.
     /// The savepoint creation statement will instead be sent along with the next command.
     /// </remarks>
-#if NET5_0_OR_GREATER
     public override Task SaveAsync(string name, CancellationToken cancellationToken = default)
-#else
-    public Task SaveAsync(string name, CancellationToken cancellationToken = default)
-#endif
     {
         Save(name);
         return Task.CompletedTask;
     }
 
-    async Task Rollback(string name, bool async, CancellationToken cancellationToken = default)
+    async Task Rollback(bool async, string name, CancellationToken cancellationToken = default)
     {
-        if (name == null)
-            throw new ArgumentNullException(nameof(name));
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("name can't be empty", nameof(name));
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         CheckReady();
         if (!_connector.DatabaseInfo.SupportsTransactions)
@@ -278,7 +241,7 @@ public sealed class NpgsqlTransaction : DbTransaction
         using (_connector.StartUserAction(cancellationToken))
         {
             var quotedName = RequiresQuoting(name) ? $"\"{name.Replace("\"", "\"\"")}\"" : name;
-            await _connector.ExecuteInternalCommand($"ROLLBACK TO SAVEPOINT {quotedName}", async, cancellationToken);
+            await _connector.ExecuteInternalCommand($"ROLLBACK TO SAVEPOINT {quotedName}", async, cancellationToken).ConfigureAwait(false);
             LogMessages.RolledBackToSavepoint(_transactionLogger, name, _connector.Id);
         }
     }
@@ -287,12 +250,8 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// Rolls back a transaction from a pending savepoint state.
     /// </summary>
     /// <param name="name">The name of the savepoint.</param>
-#if NET5_0_OR_GREATER
     public override void Rollback(string name)
-#else
-    public void Rollback(string name)
-#endif
-        => Rollback(name, false).GetAwaiter().GetResult();
+        => Rollback(async: false, name).GetAwaiter().GetResult();
 
     /// <summary>
     /// Rolls back a transaction from a pending savepoint state.
@@ -301,22 +260,12 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// <param name="cancellationToken">
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
     /// </param>
-#if NET5_0_OR_GREATER
     public override Task RollbackAsync(string name, CancellationToken cancellationToken = default)
-#else
-    public Task RollbackAsync(string name, CancellationToken cancellationToken = default)
-#endif
-    {
-        using (NoSynchronizationContextScope.Enter())
-            return Rollback(name, true, cancellationToken);
-    }
+        => Rollback(async: true, name, cancellationToken);
 
-    async Task Release(string name, bool async, CancellationToken cancellationToken = default)
+    async Task Release(bool async, string name, CancellationToken cancellationToken = default)
     {
-        if (name == null)
-            throw new ArgumentNullException(nameof(name));
-        if (string.IsNullOrWhiteSpace(name))
-            throw new ArgumentException("name can't be empty", nameof(name));
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         CheckReady();
         if (!_connector.DatabaseInfo.SupportsTransactions)
@@ -324,7 +273,7 @@ public sealed class NpgsqlTransaction : DbTransaction
         using (_connector.StartUserAction(cancellationToken))
         {
             var quotedName = RequiresQuoting(name) ? $"\"{name.Replace("\"", "\"\"")}\"" : name;
-            await _connector.ExecuteInternalCommand($"RELEASE SAVEPOINT {quotedName}", async, cancellationToken);
+            await _connector.ExecuteInternalCommand($"RELEASE SAVEPOINT {quotedName}", async, cancellationToken).ConfigureAwait(false);
             LogMessages.ReleasedSavepoint(_transactionLogger, name, _connector.Id);
         }
     }
@@ -333,11 +282,8 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// Releases a transaction from a pending savepoint state.
     /// </summary>
     /// <param name="name">The name of the savepoint.</param>
-#if NET5_0_OR_GREATER
-    public override void Release(string name) => Release(name, false).GetAwaiter().GetResult();
-#else
-    public void Release(string name) => Release(name, false).GetAwaiter().GetResult();
-#endif
+    public override void Release(string name)
+        => Release(async: false, name).GetAwaiter().GetResult();
 
     /// <summary>
     /// Releases a transaction from a pending savepoint state.
@@ -346,15 +292,13 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// <param name="cancellationToken">
     /// An optional token to cancel the asynchronous operation. The default value is <see cref="CancellationToken.None"/>.
     /// </param>
-#if NET5_0_OR_GREATER
     public override Task ReleaseAsync(string name, CancellationToken cancellationToken = default)
-#else
-    public Task ReleaseAsync(string name, CancellationToken cancellationToken = default)
-#endif
-    {
-        using (NoSynchronizationContextScope.Enter())
-            return Release(name, true, cancellationToken);
-    }
+        => Release(async: false, name, cancellationToken);
+
+    /// <summary>
+    /// Indicates whether this transaction supports database savepoints.
+    /// </summary>
+    public override bool SupportsSavepoints => _connector.DatabaseInfo.SupportsTransactions;
 
     #endregion
 
@@ -391,18 +335,13 @@ public sealed class NpgsqlTransaction : DbTransaction
     /// <summary>
     /// Disposes the transaction, rolling it back if it is still pending.
     /// </summary>
-#if NETSTANDARD2_0
-    public ValueTask DisposeAsync()
-#else
     public override ValueTask DisposeAsync()
-#endif
     {
         if (!IsDisposed)
         {
             if (!IsCompleted)
             {
-                using (NoSynchronizationContextScope.Enter())
-                    return DisposeAsyncInternal();
+                return DisposeAsyncInternal();
             }
 
             IsDisposed = true;
@@ -415,8 +354,8 @@ public sealed class NpgsqlTransaction : DbTransaction
             // We're disposing, so no cancellation token
             try
             {
-                await _connector.CloseOngoingOperations(async: true);
-                await Rollback(async: true);
+                await _connector.CloseOngoingOperations(async: true).ConfigureAwait(false);
+                await Rollback(async: true).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -447,13 +386,13 @@ public sealed class NpgsqlTransaction : DbTransaction
     {
         CheckDisposed();
         if (IsCompleted)
-            throw new InvalidOperationException("This NpgsqlTransaction has completed; it is no longer usable.");
+            ThrowHelper.ThrowInvalidOperationException("This NpgsqlTransaction has completed; it is no longer usable.");
     }
 
     void CheckDisposed()
     {
         if (IsDisposed)
-            throw new ObjectDisposedException(typeof(NpgsqlTransaction).Name, _disposeReason);
+            ThrowHelper.ThrowObjectDisposedException(nameof(NpgsqlTransaction), _disposeReason);
     }
 
     static bool RequiresQuoting(string identifier)

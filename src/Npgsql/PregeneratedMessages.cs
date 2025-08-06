@@ -1,8 +1,7 @@
-﻿using System.Diagnostics;
-using System.IO;
-using System.Linq;
+﻿using System.IO;
 using System.Text;
 using Npgsql.Internal;
+using Npgsql.Util;
 
 namespace Npgsql;
 
@@ -10,11 +9,9 @@ static class PregeneratedMessages
 {
     static PregeneratedMessages()
     {
-#pragma warning disable CS8625
         // This is the only use of a write buffer without a connector, for in-memory construction of
         // pregenerated messages.
         using var buf = new NpgsqlWriteBuffer(null, new MemoryStream(), null, NpgsqlWriteBuffer.MinimumSize, Encoding.ASCII);
-#pragma warning restore CS8625
 
         BeginTransRepeatableRead    = Generate(buf, "BEGIN ISOLATION LEVEL REPEATABLE READ");
         BeginTransSerializable      = Generate(buf, "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE");
@@ -27,7 +24,7 @@ static class PregeneratedMessages
 
     internal static byte[] Generate(NpgsqlWriteBuffer buf, string query)
     {
-        Debug.Assert(query.All(c => c < 128));
+        NpgsqlWriteBuffer.AssertASCIIOnly(query);
 
         var queryByteLen = Encoding.ASCII.GetByteCount(query);
 

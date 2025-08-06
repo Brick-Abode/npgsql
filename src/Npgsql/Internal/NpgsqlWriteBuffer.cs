@@ -1,9 +1,7 @@
 ﻿using System;
-using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -12,24 +10,28 @@ using System.Threading.Tasks;
 using Npgsql.Util;
 using static System.Threading.Timeout;
 
-#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
 namespace Npgsql.Internal;
 
 /// <summary>
 /// A buffer used by Npgsql to write data to the socket efficiently.
 /// Provides methods which encode different values types and tracks the current position.
 /// </summary>
-public sealed partial class NpgsqlWriteBuffer : IDisposable
+sealed class NpgsqlWriteBuffer : IDisposable
 {
     #region Fields and Properties
+
+    internal static readonly UTF8Encoding UTF8Encoding = new(false, true);
+    internal static readonly UTF8Encoding RelaxedUTF8Encoding = new(false, false);
 
     internal readonly NpgsqlConnector Connector;
 
     internal Stream Underlying { private get; set; }
 
     readonly Socket? _underlyingSocket;
+    internal bool MessageLengthValidation { get; set; } = true;
 
     readonly ResettableCancellationTokenSource _timeoutCts;
+    readonly MetricsReporter? _metricsReporter;
 
     /// <summary>
     /// Timeout for sync and async writes
@@ -67,14 +69,20 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
 
     public int WriteSpaceLeft => Size - WritePosition;
 
+    // (Re)init to make sure we'll refetch from the write buffer.
+    internal PgWriter GetWriter(NpgsqlDatabaseInfo typeCatalog, FlushMode flushMode = FlushMode.None)
+        => _pgWriter.Init(typeCatalog, flushMode);
+
     internal readonly byte[] Buffer;
     readonly Encoder _textEncoder;
 
     internal int WritePosition;
 
-    ParameterStream? _parameterStream;
+    int _messageBytesFlushed;
+    int? _messageLength;
 
     bool _disposed;
+    readonly PgWriter _pgWriter;
 
     /// <summary>
     /// The minimum buffer size possible.
@@ -87,24 +95,25 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
     #region Constructors
 
     internal NpgsqlWriteBuffer(
-        NpgsqlConnector connector,
+        NpgsqlConnector? connector,
         Stream stream,
         Socket? socket,
         int size,
         Encoding textEncoding)
     {
-        if (size < MinimumSize)
-            throw new ArgumentOutOfRangeException(nameof(size), size, "Buffer size must be at least " + MinimumSize);
+        ArgumentOutOfRangeException.ThrowIfLessThan(size, MinimumSize);
 
-        Connector = connector;
+        Connector = connector!; // TODO: Clean this up; only null when used from PregeneratedMessages, where we don't care.
         Underlying = stream;
         _underlyingSocket = socket;
+        _metricsReporter = connector?.DataSource.MetricsReporter!;
         _timeoutCts = new ResettableCancellationTokenSource();
         Buffer = new byte[size];
         Size = size;
 
         TextEncoding = textEncoding;
         _textEncoder = TextEncoding.GetEncoder();
+        _pgWriter = new PgWriter(new NpgsqlBufferWriter(this));
     }
 
     #endregion
@@ -126,6 +135,8 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
             WritePosition = pos;
         } else if (WritePosition == 0)
             return;
+        else
+            AdvanceMessageBytesFlushed(WritePosition);
 
         var finalCt = async && Timeout > TimeSpan.Zero
             ? _timeoutCts.Start(cancellationToken)
@@ -135,9 +146,9 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
         {
             if (async)
             {
-                await Underlying.WriteAsync(Buffer, 0, WritePosition, finalCt);
-                await Underlying.FlushAsync(finalCt);
-                if (Timeout > TimeSpan.Zero) 
+                await Underlying.WriteAsync(Buffer, 0, WritePosition, finalCt).ConfigureAwait(false);
+                await Underlying.FlushAsync(finalCt).ConfigureAwait(false);
+                if (Timeout > TimeSpan.Zero)
                     _timeoutCts.Stop();
             }
             else
@@ -146,31 +157,29 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
                 Underlying.Flush();
             }
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
             // Stopping twice (in case the previous Stop() call succeeded) doesn't hurt.
             // Not stopping will cause an assertion failure in debug mode when we call Start() the next time.
             // We can't stop in a finally block because Connector.Break() will dispose the buffer and the contained
             // _timeoutCts
             _timeoutCts.Stop();
-            switch (e)
+            switch (ex)
             {
             // User requested the cancellation
-            case OperationCanceledException _ when (cancellationToken.IsCancellationRequested):
-                throw Connector.Break(e);
+            case OperationCanceledException when cancellationToken.IsCancellationRequested:
+                throw Connector.Break(ex);
             // Read timeout
-            case OperationCanceledException _:
-            // Note that mono throws SocketException with the wrong error (see #1330)
-            case IOException _ when (e.InnerException as SocketException)?.SocketErrorCode ==
-                                    (Type.GetType("Mono.Runtime") == null ? SocketError.TimedOut : SocketError.WouldBlock):
-                Debug.Assert(e is OperationCanceledException ? async : !async);
+            case OperationCanceledException:
+            case IOException { InnerException: SocketException { SocketErrorCode: SocketError.TimedOut } }:
+                Debug.Assert(ex is OperationCanceledException ? async : !async);
                 throw Connector.Break(new NpgsqlException("Exception while writing to stream", new TimeoutException("Timeout during writing attempt")));
             }
 
-            throw Connector.Break(new NpgsqlException("Exception while writing to stream", e));
+            throw Connector.Break(new NpgsqlException("Exception while writing to stream", ex));
         }
         NpgsqlEventSource.Log.BytesWritten(WritePosition);
-        //NpgsqlEventSource.Log.RequestFailed();
+        _metricsReporter?.ReportBytesWritten(WritePosition);
 
         WritePosition = 0;
         if (_copyMode)
@@ -194,15 +203,19 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
             Debug.Assert(WritePosition == 5);
 
             WritePosition = 1;
-            WriteInt32(buffer.Length + 4);
+            WriteInt32(checked(buffer.Length + 4));
             WritePosition = 5;
             _copyMode = false;
+            StartMessage(5);
             Flush();
             _copyMode = true;
             WriteCopyDataHeader();  // And ready the buffer after the direct write completes
         }
         else
+        {
             Debug.Assert(WritePosition == 0);
+            AdvanceMessageBytesFlushed(buffer.Length);
+        }
 
         try
         {
@@ -216,7 +229,7 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
 
     internal async Task DirectWrite(ReadOnlyMemory<byte> memory, bool async, CancellationToken cancellationToken = default)
     {
-        await Flush(async, cancellationToken);
+        await Flush(async, cancellationToken).ConfigureAwait(false);
 
         if (_copyMode)
         {
@@ -225,20 +238,24 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
             Debug.Assert(WritePosition == 5);
 
             WritePosition = 1;
-            WriteInt32(memory.Length + 4);
+            WriteInt32(checked(memory.Length + 4));
             WritePosition = 5;
             _copyMode = false;
-            await Flush(async, cancellationToken);
+            StartMessage(5);
+            await Flush(async, cancellationToken).ConfigureAwait(false);
             _copyMode = true;
             WriteCopyDataHeader();  // And ready the buffer after the direct write completes
         }
         else
+        {
             Debug.Assert(WritePosition == 0);
+            AdvanceMessageBytesFlushed(memory.Length);
+        }
 
         try
         {
             if (async)
-                await Underlying.WriteAsync(memory, cancellationToken);
+                await Underlying.WriteAsync(memory, cancellationToken).ConfigureAwait(false);
             else
                 Underlying.Write(memory.Span);
         }
@@ -252,93 +269,64 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
 
     #region Write Simple
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteSByte(sbyte value) => Write(value);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteByte(byte value) => Write(value);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void WriteInt16(int value)
-        => WriteInt16((short)value, false);
+    public void WriteByte(byte value)
+    {
+        CheckBounds<byte>();
+        Buffer[WritePosition] = value;
+        WritePosition += sizeof(byte);
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void WriteInt16(short value)
-        => WriteInt16(value, false);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteInt16(short value, bool littleEndian)
-        => Write(littleEndian == BitConverter.IsLittleEndian ? value : BinaryPrimitives.ReverseEndianness(value));
+    {
+        CheckBounds<short>();
+        Unsafe.WriteUnaligned(ref Buffer[WritePosition], BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(value) : value);
+        WritePosition += sizeof(short);
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void WriteUInt16(ushort value)
-        => WriteUInt16(value, false);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteUInt16(ushort value, bool littleEndian)
-        => Write(littleEndian == BitConverter.IsLittleEndian ? value : BinaryPrimitives.ReverseEndianness(value));
+    {
+        CheckBounds<ushort>();
+        Unsafe.WriteUnaligned(ref Buffer[WritePosition], BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(value) : value);
+        WritePosition += sizeof(ushort);
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void WriteInt32(int value)
-        => WriteInt32(value, false);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteInt32(int value, bool littleEndian)
-        => Write(littleEndian == BitConverter.IsLittleEndian ? value : BinaryPrimitives.ReverseEndianness(value));
+    {
+        CheckBounds<int>();
+        Unsafe.WriteUnaligned(ref Buffer[WritePosition], BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(value) : value);
+        WritePosition += sizeof(int);
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void WriteUInt32(uint value)
-        => WriteUInt32(value, false);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteUInt32(uint value, bool littleEndian)
-        => Write(littleEndian == BitConverter.IsLittleEndian ? value : BinaryPrimitives.ReverseEndianness(value));
+    {
+        CheckBounds<uint>();
+        Unsafe.WriteUnaligned(ref Buffer[WritePosition], BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(value) : value);
+        WritePosition += sizeof(uint);
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void WriteInt64(long value)
-        => WriteInt64(value, false);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteInt64(long value, bool littleEndian)
-        => Write(littleEndian == BitConverter.IsLittleEndian ? value : BinaryPrimitives.ReverseEndianness(value));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteUInt64(ulong value)
-        => WriteUInt64(value, false);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteUInt64(ulong value, bool littleEndian)
-        => Write(littleEndian == BitConverter.IsLittleEndian ? value : BinaryPrimitives.ReverseEndianness(value));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteSingle(float value)
-        => WriteSingle(value, false);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteSingle(float value, bool littleEndian)
-        => WriteInt32(Unsafe.As<float, int>(ref value), littleEndian);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteDouble(double value)
-        => WriteDouble(value, false);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteDouble(double value, bool littleEndian)
-        => WriteInt64(Unsafe.As<double, long>(ref value), littleEndian);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    void Write<T>(T value)
     {
-        if (Unsafe.SizeOf<T>() > WriteSpaceLeft)
-            ThrowNotSpaceLeft();
-
-        Unsafe.WriteUnaligned(ref Buffer[WritePosition], value);
-        WritePosition += Unsafe.SizeOf<T>();
+        CheckBounds<long>();
+        Unsafe.WriteUnaligned(ref Buffer[WritePosition], BitConverter.IsLittleEndian ? BinaryPrimitives.ReverseEndianness(value) : value);
+        WritePosition += sizeof(long);
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
+    [Conditional("DEBUG")]
+    unsafe void CheckBounds<T>() where T : unmanaged
+    {
+        if (sizeof(T) > WriteSpaceLeft)
+            ThrowNotSpaceLeft();
+    }
+
     static void ThrowNotSpaceLeft()
-        => throw new InvalidOperationException("There is not enough space left in the buffer.");
+        => ThrowHelper.ThrowInvalidOperationException("There is not enough space left in the buffer.");
 
     public Task WriteString(string s, int byteLen, bool async, CancellationToken cancellationToken = default)
         => WriteString(s, s.Length, byteLen, async, cancellationToken);
@@ -359,7 +347,7 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
             {
                 // String can fit entirely in an empty buffer. Flush and retry rather than
                 // going into the partial writing flow below (which requires ToCharArray())
-                await buffer.Flush(async, cancellationToken);
+                await buffer.Flush(async, cancellationToken).ConfigureAwait(false);
                 buffer.WriteString(s, charLen);
             }
             else
@@ -370,42 +358,7 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
                     buffer.WriteStringChunked(s, charPos, charLen - charPos, true, out var charsUsed, out var completed);
                     if (completed)
                         break;
-                    await buffer.Flush(async, cancellationToken);
-                    charPos += charsUsed;
-                }
-            }
-        }
-    }
-
-    internal Task WriteChars(char[] chars, int offset, int charLen, int byteLen, bool async, CancellationToken cancellationToken = default)
-    {
-        if (byteLen <= WriteSpaceLeft)
-        {
-            WriteChars(chars, offset, charLen);
-            return Task.CompletedTask;
-        }
-        return WriteCharsLong(this, async, chars, offset, charLen, byteLen, cancellationToken);
-
-        static async Task WriteCharsLong(NpgsqlWriteBuffer buffer, bool async, char[] chars, int offset, int charLen, int byteLen, CancellationToken cancellationToken)
-        {
-            Debug.Assert(byteLen > buffer.WriteSpaceLeft);
-            if (byteLen <= buffer.Size)
-            {
-                // String can fit entirely in an empty buffer. Flush and retry rather than
-                // going into the partial writing flow below (which requires ToCharArray())
-                await buffer.Flush(async, cancellationToken);
-                buffer.WriteChars(chars, offset, charLen);
-            }
-            else
-            {
-                var charPos = 0;
-
-                while (true)
-                {
-                    buffer.WriteStringChunked(chars, charPos + offset, charLen - charPos, true, out var charsUsed, out var completed);
-                    if (completed)
-                        break;
-                    await buffer.Flush(async, cancellationToken);
+                    await buffer.Flush(async, cancellationToken).ConfigureAwait(false);
                     charPos += charsUsed;
                 }
             }
@@ -417,21 +370,6 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
         Debug.Assert(TextEncoding.GetByteCount(s) <= WriteSpaceLeft);
         WritePosition += TextEncoding.GetBytes(s, 0, len == 0 ? s.Length : len, Buffer, WritePosition);
     }
-
-    internal void WriteChars(char[] chars, int offset, int len)
-    {
-        var charCount = len == 0 ? chars.Length : len;
-        Debug.Assert(TextEncoding.GetByteCount(chars, 0, charCount) <= WriteSpaceLeft);
-        WritePosition += TextEncoding.GetBytes(chars, offset, charCount, Buffer, WritePosition);
-    }
-
-#if !NETSTANDARD2_0
-    internal void WriteChars(ReadOnlySpan<char> chars)
-    {
-        Debug.Assert(TextEncoding.GetByteCount(chars) <= WriteSpaceLeft);
-        WritePosition += TextEncoding.GetBytes(chars, Buffer.AsSpan(WritePosition));
-    }
-#endif
 
     public void WriteBytes(ReadOnlySpan<byte> buf)
     {
@@ -463,7 +401,7 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
             {
                 // value can fit entirely in an empty buffer. Flush and retry rather than
                 // going into the partial writing flow below
-                await buffer.Flush(async, cancellationToken);
+                await buffer.Flush(async, cancellationToken).ConfigureAwait(false);
                 buffer.WriteBytes(bytes);
             }
             else
@@ -472,7 +410,7 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
                 do
                 {
                     if (buffer.WriteSpaceLeft == 0)
-                        await buffer.Flush(async, cancellationToken);
+                        await buffer.Flush(async, cancellationToken).ConfigureAwait(false);
                     var writeLen = Math.Min(remaining, buffer.WriteSpaceLeft);
                     var offset = bytes.Length - remaining;
                     buffer.WriteBytes(bytes.Slice(offset, writeLen));
@@ -488,11 +426,11 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
         while (count > 0)
         {
             if (WriteSpaceLeft == 0)
-                await Flush(async, cancellationToken);
+                await Flush(async, cancellationToken).ConfigureAwait(false);
             try
             {
                 var read = async
-                    ? await stream.ReadAsync(Buffer, WritePosition, Math.Min(WriteSpaceLeft, count), cancellationToken)
+                    ? await stream.ReadAsync(Buffer, WritePosition, Math.Min(WriteSpaceLeft, count), cancellationToken).ConfigureAwait(false)
                     : stream.Read(Buffer, WritePosition, Math.Min(WriteSpaceLeft, count));
                 if (read == 0)
                     throw new EndOfStreamException();
@@ -509,24 +447,23 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
 
     public void WriteNullTerminatedString(string s)
     {
-        Debug.Assert(s.All(c => c < 128), "Method only supports ASCII strings");
+        AssertASCIIOnly(s);
         Debug.Assert(WriteSpaceLeft >= s.Length + 1);
         WritePosition += Encoding.ASCII.GetBytes(s, 0, s.Length, Buffer, WritePosition);
+        WriteByte(0);
+    }
+
+    public void WriteNullTerminatedString(byte[] s)
+    {
+        AssertASCIIOnly(s);
+        Debug.Assert(WriteSpaceLeft >= s.Length + 1);
+        WriteBytes(s);
         WriteByte(0);
     }
 
     #endregion
 
     #region Write Complex
-
-    public Stream GetStream()
-    {
-        if (_parameterStream == null)
-            _parameterStream = new ParameterStream(this);
-
-        _parameterStream.Init();
-        return _parameterStream;
-    }
 
     internal void WriteStringChunked(char[] chars, int charIndex, int charCount,
         bool flush, out int charsUsed, out bool completed)
@@ -611,9 +548,50 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
 
     #region Misc
 
+    internal void StartMessage(int messageLength)
+    {
+        if (!MessageLengthValidation)
+            return;
+
+        if (_messageLength is not null && _messageBytesFlushed != _messageLength && WritePosition != -_messageBytesFlushed + _messageLength)
+            Throw();
+
+        // Add negative WritePosition to compensate for previous message(s) written without flushing.
+        _messageBytesFlushed = -WritePosition;
+        _messageLength = messageLength;
+
+        void Throw()
+        {
+            throw Connector.Break(new OverflowException("Did not write the amount of bytes the message length specified"));
+        }
+    }
+
+    void AdvanceMessageBytesFlushed(int count)
+    {
+        if (!MessageLengthValidation)
+            return;
+
+        if (count < 0 || _messageLength is null || (long)_messageBytesFlushed + count > _messageLength)
+            Throw();
+
+        _messageBytesFlushed += count;
+
+        void Throw()
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+
+            if (_messageLength is null)
+                throw Connector.Break(new InvalidOperationException("No message was started"));
+
+            if ((long)_messageBytesFlushed + count > _messageLength)
+                throw Connector.Break(new OverflowException("Tried to write more bytes than the message length specified"));
+        }
+    }
+
     internal void Clear()
     {
         WritePosition = 0;
+        _messageLength = null;
     }
 
     /// <summary>
@@ -625,6 +603,22 @@ public sealed partial class NpgsqlWriteBuffer : IDisposable
         var buf = new byte[WritePosition];
         Array.Copy(Buffer, buf, WritePosition);
         return buf;
+    }
+
+    [Conditional("DEBUG")]
+    internal static void AssertASCIIOnly(string s)
+    {
+        foreach (var c in s)
+            if (c >= 128)
+                Debug.Fail("Method only supports ASCII strings");
+    }
+
+    [Conditional("DEBUG")]
+    internal static void AssertASCIIOnly(byte[] s)
+    {
+        foreach (var c in s)
+            if (c >= 128)
+                Debug.Fail("Method only supports ASCII strings");
     }
 
     #endregion

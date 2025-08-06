@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Npgsql.Internal.Postgres;
 
 namespace Npgsql.PostgresTypes;
 
@@ -15,12 +16,18 @@ public class PostgresEnumType : PostgresType
     /// </summary>
     public IReadOnlyList<string> Labels => MutableLabels;
 
-    internal List<string> MutableLabels { get; } = new();
+    internal List<string> MutableLabels { get; } = [];
 
     /// <summary>
     /// Constructs a representation of a PostgreSQL enum data type.
     /// </summary>
     protected internal PostgresEnumType(string ns, string name, uint oid)
-        : base(ns, name, oid)
-    {}
+        : base(ns, name, oid) {}
+
+    /// <summary>
+    /// Constructs a representation of a PostgreSQL enum data type.
+    /// </summary>
+    internal PostgresEnumType(DataTypeName dataTypeName, Oid oid)
+        : base(dataTypeName, oid) {}
+
 }

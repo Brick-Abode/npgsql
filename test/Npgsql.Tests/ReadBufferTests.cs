@@ -1,5 +1,4 @@
 ﻿using Npgsql.Internal;
-using Npgsql.Util;
 using NUnit.Framework;
 using System;
 using System.IO;
@@ -8,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Npgsql.Tests;
 
-[NonParallelizable] // Parallel access to a single buffer
+[FixtureLifeCycle(LifeCycle.InstancePerTestCase)] // Parallel access to a single buffer
 class ReadBufferTests
 {
     [Test]
@@ -56,9 +55,9 @@ class ReadBufferTests
     public void ReadNullTerminatedString_buffered_only()
     {
         Writer
-            .Write(PGUtil.UTF8Encoding.GetBytes(new string("foo")))
+            .Write(NpgsqlWriteBuffer.UTF8Encoding.GetBytes(new string("foo")))
             .WriteByte(0)
-            .Write(PGUtil.UTF8Encoding.GetBytes(new string("bar")))
+            .Write(NpgsqlWriteBuffer.UTF8Encoding.GetBytes(new string("bar")))
             .WriteByte(0);
 
         ReadBuffer.Ensure(1);
@@ -70,30 +69,28 @@ class ReadBufferTests
     [Test]
     public async Task ReadNullTerminatedString_with_io()
     {
-        Writer.Write(PGUtil.UTF8Encoding.GetBytes(new string("Chunked ")));
-        ReadBuffer.Ensure(1);
+        Writer.Write(NpgsqlWriteBuffer.UTF8Encoding.GetBytes(new string("Chunked ")));
+        await ReadBuffer.Ensure(1, async: true);
         var task = ReadBuffer.ReadNullTerminatedString(async: true);
         Assert.That(!task.IsCompleted);
 
         Writer
-            .Write(PGUtil.UTF8Encoding.GetBytes(new string("string")))
+            .Write(NpgsqlWriteBuffer.UTF8Encoding.GetBytes(new string("string")))
             .WriteByte(0)
-            .Write(PGUtil.UTF8Encoding.GetBytes(new string("bar")))
+            .Write(NpgsqlWriteBuffer.UTF8Encoding.GetBytes(new string("bar")))
             .WriteByte(0);
         Assert.That(task.IsCompleted);
         Assert.That(await task, Is.EqualTo("Chunked string"));
         Assert.That(ReadBuffer.ReadNullTerminatedString(), Is.EqualTo("bar"));
     }
 
-#pragma warning disable CS8625
     [SetUp]
     public void SetUp()
     {
         var stream = new MockStream();
-        ReadBuffer = new NpgsqlReadBuffer(null, stream, null, NpgsqlReadBuffer.DefaultSize, PGUtil.UTF8Encoding, PGUtil.RelaxedUTF8Encoding);
+        ReadBuffer = new NpgsqlReadBuffer(null, stream, null, NpgsqlReadBuffer.DefaultSize, NpgsqlWriteBuffer.UTF8Encoding, NpgsqlWriteBuffer.RelaxedUTF8Encoding);
         Writer = stream.Writer;
     }
-#pragma warning restore CS8625
 
     // ReSharper disable once InconsistentNaming
     NpgsqlReadBuffer ReadBuffer = default!;
@@ -136,12 +133,8 @@ class ReadBufferTests
             return count;
         }
 
-        internal class MockStreamWriter
+        internal class MockStreamWriter(MockStream stream)
         {
-            readonly MockStream _stream;
-
-            public MockStreamWriter(MockStream stream) => _stream = stream;
-
             public MockStreamWriter WriteByte(byte b)
             {
                 Span<byte> bytes = stackalloc byte[1];
@@ -152,11 +145,11 @@ class ReadBufferTests
 
             public MockStreamWriter Write(ReadOnlySpan<byte> bytes)
             {
-                if (_stream._filled + bytes.Length > Size)
+                if (stream._filled + bytes.Length > Size)
                     throw new Exception("Mock stream overrun");
-                bytes.CopyTo(new Span<byte>(_stream._data, _stream._filled, bytes.Length));
-                _stream._filled += bytes.Length;
-                _stream._tcs.TrySetResult(new());
+                bytes.CopyTo(new Span<byte>(stream._data, stream._filled, bytes.Length));
+                stream._filled += bytes.Length;
+                stream._tcs.TrySetResult(new());
                 return this;
             }
         }

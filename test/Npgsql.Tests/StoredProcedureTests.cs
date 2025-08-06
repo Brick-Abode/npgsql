@@ -15,17 +15,17 @@ public class StoredProcedureTests : TestBase
     [TestCase(true, true)]
     public async Task With_input_parameters(bool withPositional, bool withNamed)
     {
-        var table = await CreateTempTable(SharedDataSource, "foo int, bar int");
-        var sproc = await GetTempProcedureName(SharedDataSource);
+        var table = await CreateTempTable(DataSource, "foo int, bar int");
+        var sproc = await GetTempProcedureName(DataSource);
 
-        await SharedDataSource.ExecuteNonQueryAsync(@$"
+        await DataSource.ExecuteNonQueryAsync(@$"
 CREATE PROCEDURE {sproc}(a int, b int)
 LANGUAGE SQL
 AS $$
     INSERT INTO {table} VALUES (a, b);
 $$");
 
-        await using (var command = SharedDataSource.CreateCommand(sproc))
+        await using (var command = DataSource.CreateCommand(sproc))
         {
             command.CommandType = CommandType.StoredProcedure;
 
@@ -40,7 +40,7 @@ $$");
             await command.ExecuteNonQueryAsync();
         }
 
-        await using (var command = SharedDataSource.CreateCommand($"SELECT * FROM {table}"))
+        await using (var command = DataSource.CreateCommand($"SELECT * FROM {table}"))
         await using (var reader = await command.ExecuteReaderAsync())
         {
             await reader.ReadAsync();
@@ -55,11 +55,11 @@ $$");
     [TestCase(true, true)]
     public async Task With_output_parameters(bool withPositional, bool withNamed)
     {
-        MinimumPgVersion(SharedDataSource, "14.0", "Stored procedure OUT parameters are only support starting with version 14");
+        MinimumPgVersion(DataSource, "14.0", "Stored procedure OUT parameters are only support starting with version 14");
 
-        var sproc = await GetTempProcedureName(SharedDataSource);
+        var sproc = await GetTempProcedureName(DataSource);
 
-        await SharedDataSource.ExecuteNonQueryAsync(@$"
+        await DataSource.ExecuteNonQueryAsync(@$"
 CREATE PROCEDURE {sproc}(a int, OUT out1 int, OUT out2 int, b int)
 LANGUAGE plpgsql
 AS $$
@@ -68,7 +68,7 @@ BEGIN
     out2 = b;
 END$$");
 
-        await using var command = SharedDataSource.CreateCommand(sproc);
+        await using var command = DataSource.CreateCommand(sproc);
         command.CommandType = CommandType.StoredProcedure;
 
         command.Parameters.Add(new() { Value = 8 });
@@ -96,9 +96,9 @@ END$$");
     [TestCase(true, true)]
     public async Task With_input_output_parameters(bool withPositional, bool withNamed)
     {
-        var sproc = await GetTempProcedureName(SharedDataSource);
+        var sproc = await GetTempProcedureName(DataSource);
 
-        await SharedDataSource.ExecuteNonQueryAsync(@$"
+        await DataSource.ExecuteNonQueryAsync(@$"
 CREATE PROCEDURE {sproc}(a int, INOUT inout1 int, INOUT inout2 int, b int)
 LANGUAGE plpgsql
 AS $$
@@ -107,7 +107,7 @@ BEGIN
     inout2 = inout2 + b;
 END$$");
 
-        await using var command = SharedDataSource.CreateCommand(sproc);
+        await using var command = DataSource.CreateCommand(sproc);
         command.CommandType = CommandType.StoredProcedure;
 
         command.Parameters.Add(new() { Value = 8 });
@@ -127,6 +127,88 @@ END$$");
 
         Assert.That(reader[0], Is.EqualTo(9));
         Assert.That(reader[1], Is.EqualTo(11));
+    }
+
+    [Test]
+    public async Task Batch_positional_parameters_works()
+    {
+        var tempname = await GetTempProcedureName(DataSource);
+        await using var connection = await DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var batch = new NpgsqlBatch(connection, transaction)
+        {
+            BatchCommands =
+            {
+                new(tempname)
+                {
+                    CommandType = CommandType.StoredProcedure,
+                    Parameters =
+                    {
+                        new() { Value = "" },
+                        new() { DbType = DbType.Int64, Direction = ParameterDirection.Output }
+                    }
+                },
+                new ("COMMIT")
+            }
+        };
+
+        Assert.ThrowsAsync<PostgresException>(() => batch.ExecuteNonQueryAsync());
+    }
+
+    [Test]
+    public async Task Batch_StoredProcedure_output_parameters_works()
+    {
+        // Proper OUT params were introduced in PostgreSQL 14
+        MinimumPgVersion(DataSource, "14.0", "Stored procedure OUT parameters are only support starting with version 14");
+        var sproc = await GetTempProcedureName(DataSource);
+
+        await using var connection = await DataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+        var c = connection.CreateCommand();
+        c.CommandText = $"""
+        CREATE OR REPLACE PROCEDURE {sproc}
+        (
+            p_username TEXT,
+            OUT p_user_id BIGINT
+        )
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            p_user_id = 1;
+        	return;
+        END;
+        $$;
+        """;
+        await c.ExecuteNonQueryAsync();
+
+        await using var batch = new NpgsqlBatch(connection, transaction)
+        {
+            BatchCommands =
+            {
+                new(sproc)
+                {
+                    CommandType = CommandType.StoredProcedure,
+                    Parameters =
+                    {
+                        new() { Value = "" },
+                        new() { NpgsqlDbType = NpgsqlDbType.Bigint, Direction = ParameterDirection.Output }
+                    }
+                },
+                new(sproc)
+                {
+                    CommandType = CommandType.StoredProcedure,
+                    Parameters =
+                    {
+                        new() { Value = "" },
+                        new() { NpgsqlDbType = NpgsqlDbType.Bigint, Direction = ParameterDirection.Output }
+                    }
+                }
+            }
+        };
+
+        await batch.ExecuteNonQueryAsync();
+        Assert.AreEqual(1, batch.BatchCommands[0].Parameters[1].Value);
+        Assert.AreEqual(1, batch.BatchCommands[1].Parameters[1].Value);
     }
 
     #region DeriveParameters

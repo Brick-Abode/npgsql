@@ -1,7 +1,6 @@
 ﻿#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
 
 using System;
-using System.Linq;
 
 namespace Npgsql;
 
@@ -390,6 +389,7 @@ public static class PostgresErrorCodes
     public const string CrashShutdown = "57P02";
     public const string CannotConnectNow = "57P03";
     public const string DatabaseDropped = "57P04";
+    public const string IdleSessionTimeout = "57P05";
 
     #endregion Class 57 - Operator Intervention
 
@@ -466,17 +466,23 @@ public static class PostgresErrorCodes
     #endregion Class XX - Internal Error
 
     static readonly string[] CriticalFailureCodes =
-    {
+    [
         "53", // Insufficient resources
         AdminShutdown, // Self explanatory
         CrashShutdown, // Self explanatory
         CannotConnectNow, // Database is starting up
         "58", // System errors, external to PG (server is dying)
         "F0", // Configuration file error
-        "XX", // Internal error (database is dying)
-    };
+        "XX" // Internal error (database is dying)
+    ];
 
     internal static bool IsCriticalFailure(PostgresException e, bool clusterError = true)
-        => CriticalFailureCodes.Any(x => e.SqlState.StartsWith(x, StringComparison.Ordinal)) ||
-           !clusterError && e.SqlState == ProtocolViolation; // We only treat ProtocolViolation as critical for connection
+    {
+        foreach (var x in CriticalFailureCodes)
+            if (e.SqlState.StartsWith(x, StringComparison.Ordinal))
+                return true;
+
+        // We only treat ProtocolViolation as critical for connection
+        return !clusterError && e.SqlState == ProtocolViolation;
+    }
 }

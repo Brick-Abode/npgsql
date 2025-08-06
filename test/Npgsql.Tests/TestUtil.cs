@@ -19,7 +19,7 @@ public static class TestUtil
     /// test database.
     /// </summary>
     public const string DefaultConnectionString =
-        "Server=localhost;Username=npgsql_tests;Password=npgsql_tests;Database=npgsql_tests;Timeout=0;Command Timeout=0;SSL Mode=Disable";
+        "Host=localhost;Username=npgsql_tests;Password=npgsql_tests;Database=npgsql_tests;Timeout=0;Command Timeout=0;SSL Mode=Disable;Multiplexing=False";
 
     /// <summary>
     /// The connection string that will be used when opening the connection to the tests database.
@@ -57,7 +57,7 @@ public static class TestUtil
         MinimumPgVersion(connection, minVersion, ignoreText);
     }
 
-    public static void MinimumPgVersion(NpgsqlConnection conn, string minVersion, string? ignoreText = null)
+    public static bool MinimumPgVersion(NpgsqlConnection conn, string minVersion, string? ignoreText = null)
     {
         var min = new Version(minVersion);
         if (conn.PostgreSqlVersion < min)
@@ -66,7 +66,10 @@ public static class TestUtil
             if (ignoreText != null)
                 msg += ": " + ignoreText;
             Assert.Ignore(msg);
+            return false;
         }
+
+        return true;
     }
 
     public static void MaximumPgVersionExclusive(NpgsqlConnection conn, string maxVersion, string? ignoreText = null)
@@ -83,9 +86,12 @@ public static class TestUtil
 
     static readonly Version MinCreateExtensionVersion = new(9, 1);
 
-    public static void IgnoreOnRedshift(NpgsqlConnection conn, string? ignoreText = null)
+    public static async Task IgnoreOnRedshift(NpgsqlConnection conn, string? ignoreText = null)
     {
-        if (new NpgsqlConnectionStringBuilder(conn.ConnectionString).ServerCompatibilityMode == ServerCompatibilityMode.Redshift)
+        await using var command = conn.CreateCommand();
+        command.CommandText = "SELECT version()";
+        var version = (string)(await command.ExecuteScalarAsync())!;
+        if (version.Contains("redshift", StringComparison.OrdinalIgnoreCase))
         {
             var msg = "Test ignored on Redshift";
             if (ignoreText != null)
@@ -94,8 +100,8 @@ public static class TestUtil
         }
     }
 
-    public static bool IsPgPrerelease(NpgsqlConnection conn)
-        => ((string)conn.ExecuteScalar("SELECT version()")!).Contains("beta");
+    public static async Task<bool> IsPgPrerelease(NpgsqlConnection conn)
+        => ((string) (await conn.ExecuteScalarAsync("SELECT version()"))!).Contains("beta");
 
     public static void EnsureExtension(NpgsqlConnection conn, string extension, string? minVersion = null)
         => EnsureExtension(conn, extension, minVersion, async: false).GetAwaiter().GetResult();
@@ -105,22 +111,26 @@ public static class TestUtil
 
     static async Task EnsureExtension(NpgsqlConnection conn, string extension, string? minVersion, bool async)
     {
-        if (minVersion != null)
-            MinimumPgVersion(conn, minVersion, $"The extension '{extension}' only works for PostgreSQL {minVersion} and higher.");
+        if (minVersion != null && !MinimumPgVersion(conn, minVersion, $"The extension '{extension}' only works for PostgreSQL {minVersion} and higher."))
+            return;
 
         if (conn.PostgreSqlVersion < MinCreateExtensionVersion)
             Assert.Ignore($"The 'CREATE EXTENSION' command only works for PostgreSQL {MinCreateExtensionVersion} and higher.");
 
-        if (async)
-            await conn.ExecuteNonQueryAsync($"CREATE EXTENSION IF NOT EXISTS {extension}");
-        else
-            conn.ExecuteNonQuery($"CREATE EXTENSION IF NOT EXISTS {extension}");
+        try
+        {
+            if (async)
+                await conn.ExecuteNonQueryAsync($"CREATE EXTENSION IF NOT EXISTS {extension}");
+            else
+                conn.ExecuteNonQuery($"CREATE EXTENSION IF NOT EXISTS {extension}");
+        }
+        catch (PostgresException ex) when (ex.ConstraintName == "pg_extension_name_index")
+        {
+            // The extension is already installed, but we can race across threads.
+            // https://stackoverflow.com/questions/63104126/create-extention-if-not-exists-doesnt-really-check-if-extention-does-not-exis
+        }
 
         conn.ReloadTypes();
-
-        // Multiplexing doesn't really support reloading types, since each connector uses its own connector type mapper when reading,
-        // which is different from the pool-wise connector mapper (which is used when writing).
-        NpgsqlConnection.ClearPool(conn);
     }
 
     /// <summary>
@@ -158,6 +168,7 @@ public static class TestUtil
 
     public static async Task EnsurePostgis(NpgsqlConnection conn)
     {
+        var isPreRelease = await IsPgPrerelease(conn);
         try
         {
             await EnsureExtensionAsync(conn, "postgis");
@@ -165,9 +176,13 @@ public static class TestUtil
         catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UndefinedFile)
         {
             // PostGIS packages aren't available for PostgreSQL prereleases
-            if (IsPgPrerelease(conn))
+            if (isPreRelease)
             {
                 Assert.Ignore($"PostGIS could not be installed, but PostgreSQL is prerelease ({conn.ServerVersion}), ignoring test suite.");
+            }
+            else
+            {
+                throw;
             }
         }
     }
@@ -243,6 +258,17 @@ CREATE TABLE {tableName} ({columns});");
     {
         var viewName = "temp_view" + Interlocked.Increment(ref _tempViewCounter);
         await conn.ExecuteNonQueryAsync($"DROP VIEW IF EXISTS {viewName} CASCADE");
+        return viewName;
+    }
+
+    /// <summary>
+    /// Generates a unique materialized view name, usable for a single test, and drops it if it already exists.
+    /// Actual creation of the materialized view is the responsibility of the caller.
+    /// </summary>
+    internal static async Task<string> GetTempMaterializedViewName(NpgsqlConnection conn)
+    {
+        var viewName = "temp_materialized_view" + Interlocked.Increment(ref _tempViewCounter);
+        await conn.ExecuteNonQueryAsync($"DROP MATERIALIZED VIEW IF EXISTS {viewName} CASCADE");
         return viewName;
     }
 
@@ -370,8 +396,8 @@ CREATE TABLE {tableName} ({columns});");
         NpgsqlCommand.EnableSqlRewriting = false;
         return new DeferredExecutionDisposable(() => NpgsqlCommand.EnableSqlRewriting = true);
 #else
-            Assert.Ignore("Cannot disable SQL rewriting in RELEASE builds");
-            throw new NotSupportedException("Cannot disable SQL rewriting in RELEASE builds");
+        Assert.Ignore("Cannot disable SQL rewriting in RELEASE builds");
+        throw new NotSupportedException("Cannot disable SQL rewriting in RELEASE builds");
 #endif
     }
 
@@ -495,13 +521,9 @@ public static class NpgsqlCommandExtensions
 /// test reproduces the issue)
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
-public class IssueLink : Attribute
+public class IssueLink(string linkAddress) : Attribute
 {
-    public string LinkAddress { get; private set; }
-    public IssueLink(string linkAddress)
-    {
-        LinkAddress = linkAddress;
-    }
+    public string LinkAddress { get; private set; } = linkAddress;
 }
 
 public enum PrepareOrNot
@@ -515,20 +537,3 @@ public enum PooledOrNot
     Pooled,
     Unpooled
 }
-
-#if NETSTANDARD2_0
-    static class QueueExtensions
-    {
-        public static bool TryDequeue<T>(this Queue<T> queue, out T result)
-        {
-            if (queue.Count == 0)
-            {
-                result = default;
-                return false;
-            }
-
-            result = queue.Dequeue();
-            return true;
-        }
-    }
-#endif

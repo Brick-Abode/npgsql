@@ -16,49 +16,37 @@ using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests.Replication;
 
-[TestFixture(ProtocolVersion.V1, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.DefaultTransactionMode)]
-[TestFixture(ProtocolVersion.V1, ReplicationDataMode.BinaryReplicationDataMode, TransactionMode.DefaultTransactionMode)]
-[TestFixture(ProtocolVersion.V2, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.StreamingTransactionMode)]
-[TestFixture(ProtocolVersion.V3, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.DefaultTransactionMode)]
-[TestFixture(ProtocolVersion.V3, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.StreamingTransactionMode)]
-// We currently don't execute all possible combinations of settings for efficiency reasons because they don't
-// interact in the current implementation.
-// Feel free to uncomment some or all of the following lines if the implementation changed or you suspect a
-// problem with some combination.
-// [TestFixture(ProtocolVersion.V1, ReplicationDataMode.TextReplicationDataMode, TransactionMode.NonStreamingTransactionMode)]
-// [TestFixture(ProtocolVersion.V2, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.DefaultTransactionMode)]
-// [TestFixture(ProtocolVersion.V2, ReplicationDataMode.TextReplicationDataMode, TransactionMode.NonStreamingTransactionMode)]
-// [TestFixture(ProtocolVersion.V2, ReplicationDataMode.BinaryReplicationDataMode, TransactionMode.DefaultTransactionMode)]
-// [TestFixture(ProtocolVersion.V2, ReplicationDataMode.BinaryReplicationDataMode, TransactionMode.StreamingTransactionMode)]
-// [TestFixture(ProtocolVersion.V3, ReplicationDataMode.TextReplicationDataMode, TransactionMode.NonStreamingTransactionMode)]
-// [TestFixture(ProtocolVersion.V3, ReplicationDataMode.BinaryReplicationDataMode, TransactionMode.DefaultTransactionMode)]
-// [TestFixture(ProtocolVersion.V3, ReplicationDataMode.BinaryReplicationDataMode, TransactionMode.StreamingTransactionMode)]
-[Platform(Exclude = "MacOsX", Reason = "Replication tests are flaky in CI on Mac")]
+[TestFixture(PgOutputProtocolVersion.V1, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.DefaultTransactionMode)]
+[TestFixture(PgOutputProtocolVersion.V1, ReplicationDataMode.BinaryReplicationDataMode, TransactionMode.DefaultTransactionMode)]
+[TestFixture(PgOutputProtocolVersion.V2, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.StreamingTransactionMode)]
+[TestFixture(PgOutputProtocolVersion.V3, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.DefaultTransactionMode)]
+[TestFixture(PgOutputProtocolVersion.V3, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.StreamingTransactionMode)]
+[TestFixture(PgOutputProtocolVersion.V4, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.DefaultTransactionMode)]
+[TestFixture(PgOutputProtocolVersion.V4, ReplicationDataMode.DefaultReplicationDataMode, TransactionMode.ParallelStreamingTransactionMode)]
 [NonParallelizable] // These tests aren't designed to be parallelizable
-public class PgOutputReplicationTests : SafeReplicationTestBase<LogicalReplicationConnection>
+public class PgOutputReplicationTests(
+    PgOutputProtocolVersion protocolVersion,
+    PgOutputReplicationTests.ReplicationDataMode dataMode,
+    PgOutputReplicationTests.TransactionMode transactionMode)
+    : SafeReplicationTestBase<LogicalReplicationConnection>
 {
-    readonly ulong _protocolVersion;
-    readonly bool? _binary;
-    readonly bool? _streaming;
+    readonly bool? _binary = dataMode == ReplicationDataMode.BinaryReplicationDataMode
+        ? true
+        : dataMode == ReplicationDataMode.TextReplicationDataMode
+            ? false
+            : null;
+    readonly PgOutputStreamingMode? _streamingMode = transactionMode switch
+    {
+        TransactionMode.DefaultTransactionMode => null,
+        TransactionMode.NonStreamingTransactionMode => PgOutputStreamingMode.Off,
+        TransactionMode.StreamingTransactionMode => PgOutputStreamingMode.On,
+        TransactionMode.ParallelStreamingTransactionMode => PgOutputStreamingMode.Parallel,
+        _ => throw new ArgumentOutOfRangeException(nameof(transactionMode), transactionMode, null)
+    };
 
     bool IsBinary => _binary ?? false;
-    bool IsStreaming => _streaming ?? false;
-    ulong Version => _protocolVersion;
-
-    public PgOutputReplicationTests(ProtocolVersion protocolVersion, ReplicationDataMode dataMode, TransactionMode transactionMode)
-    {
-        _protocolVersion = (ulong)protocolVersion;
-        _binary = dataMode == ReplicationDataMode.BinaryReplicationDataMode
-            ? true
-            : dataMode == ReplicationDataMode.TextReplicationDataMode
-                ? false
-                : null;
-        _streaming = transactionMode == TransactionMode.StreamingTransactionMode
-            ? true
-            : transactionMode == TransactionMode.NonStreamingTransactionMode
-                ? false
-                : null;
-    }
+    bool IsStreaming => _streamingMode.HasValue && _streamingMode.Value != PgOutputStreamingMode.Off;
+    PgOutputProtocolVersion Version => protocolVersion;
 
     [Test]
     public Task CreatePgOutputReplicationSlot()
@@ -126,12 +114,27 @@ public class PgOutputReplicationTests : SafeReplicationTestBase<LogicalReplicati
                 Assert.That(insertMsg.Relation, Is.SameAs(relationMsg));
                 var columnEnumerator = insertMsg.NewRow.GetAsyncEnumerator();
                 Assert.That(await columnEnumerator.MoveNextAsync(), Is.True);
+                var postgresType = columnEnumerator.Current.GetPostgresType();
+                Assert.That(postgresType.FullName, Is.EqualTo("pg_catalog.integer"));
+                Assert.That(columnEnumerator.Current.GetDataTypeName(), Is.EqualTo("integer"));
+                Assert.That(columnEnumerator.Current.GetFieldName(), Is.EqualTo("id"));
                 if (IsBinary)
+                {
+                    Assert.That(columnEnumerator.Current.GetFieldType(), Is.EqualTo(typeof(int)));
                     Assert.That(await columnEnumerator.Current.Get<int>(), Is.EqualTo(1));
+                }
                 else
+                {
+                    Assert.That(columnEnumerator.Current.GetFieldType(), Is.EqualTo(typeof(string)));
                     Assert.That(await columnEnumerator.Current.Get<string>(), Is.EqualTo("1"));
+                }
 
                 Assert.That(await columnEnumerator.MoveNextAsync(), Is.True);
+                postgresType = columnEnumerator.Current.GetPostgresType();
+                Assert.That(postgresType.FullName, Is.EqualTo("pg_catalog.text"));
+                Assert.That(columnEnumerator.Current.GetDataTypeName(), Is.EqualTo("text"));
+                Assert.That(columnEnumerator.Current.GetFieldType(), Is.EqualTo(typeof(string)));
+                Assert.That(columnEnumerator.Current.GetFieldName(), Is.EqualTo("name"));
                 Assert.That(columnEnumerator.Current.IsDBNull, Is.False);
                 Assert.That(await columnEnumerator.Current.Get<string>(), Is.EqualTo("val1"));
                 Assert.That(await columnEnumerator.MoveNextAsync(), Is.False);
@@ -641,10 +644,12 @@ CREATE PUBLICATION {publicationName} FOR TABLE {tableName};
                 await NextMessage<BeginMessage>(messages);
             }, nameof(Dispose_while_replicating));
 
-    [TestCase(true)]
-    [TestCase(false)]
+    [Platform(Exclude = "MacOsX", Reason = "Test is flaky in CI on Mac, see https://github.com/npgsql/npgsql/issues/5294")]
+    [TestCase(true, true)]
+    [TestCase(true, false)]
+    [TestCase(false, false)]
     [Test(Description = "Tests whether logical decoding messages get replicated as Logical Replication Protocol Messages on PostgreSQL 14 and above")]
-    public Task LogicalDecodingMessage(bool writeMessages)
+    public Task LogicalDecodingMessage(bool writeMessages, bool readMessages)
         => SafeReplicationTest(
             async (slotName, tableName, publicationName) =>
             {
@@ -689,9 +694,12 @@ CREATE PUBLICATION {publicationName} FOR TABLE {tableName};
                     Assert.That(msg.Flags, Is.EqualTo(1));
                     Assert.That(msg.Prefix, Is.EqualTo(prefix));
                     Assert.That(msg.Data.Length, Is.EqualTo(transactionalMessage.Length));
-                    var buffer = new MemoryStream();
-                    await msg.Data.CopyToAsync(buffer, CancellationToken.None);
-                    Assert.That(rc.Encoding.GetString(buffer.ToArray()), Is.EqualTo(transactionalMessage));
+                    if (readMessages)
+                    {
+                        var buffer = new MemoryStream();
+                        await msg.Data.CopyToAsync(buffer, CancellationToken.None);
+                        Assert.That(rc.Encoding.GetString(buffer.ToArray()), Is.EqualTo(transactionalMessage));
+                    }
                 }
 
                 // Relation
@@ -712,9 +720,12 @@ CREATE PUBLICATION {publicationName} FOR TABLE {tableName};
                     Assert.That(msg.Flags, Is.EqualTo(0));
                     Assert.That(msg.Prefix, Is.EqualTo(prefix));
                     Assert.That(msg.Data.Length, Is.EqualTo(nonTransactionalMessage.Length));
-                    var buffer = new MemoryStream();
-                    await msg.Data.CopyToAsync(buffer, CancellationToken.None);
-                    Assert.That(rc.Encoding.GetString(buffer.ToArray()), Is.EqualTo(nonTransactionalMessage));
+                    if (readMessages)
+                    {
+                        var buffer = new MemoryStream();
+                        await msg.Data.CopyToAsync(buffer, CancellationToken.None);
+                        Assert.That(rc.Encoding.GetString(buffer.ToArray()), Is.EqualTo(nonTransactionalMessage));
+                    }
                 }
 
                 if (IsStreaming)
@@ -737,9 +748,12 @@ CREATE PUBLICATION {publicationName} FOR TABLE {tableName};
                         Assert.That(msg.Flags, Is.EqualTo(1));
                         Assert.That(msg.Prefix, Is.EqualTo(prefix));
                         Assert.That(msg.Data.Length, Is.EqualTo(transactionalMessage.Length));
-                        var buffer = new MemoryStream();
-                        await msg.Data.CopyToAsync(buffer, CancellationToken.None);
-                        Assert.That(rc.Encoding.GetString(buffer.ToArray()), Is.EqualTo(transactionalMessage));
+                        if (readMessages)
+                        {
+                            var buffer = new MemoryStream();
+                            await msg.Data.CopyToAsync(buffer, CancellationToken.None);
+                            Assert.That(rc.Encoding.GetString(buffer.ToArray()), Is.EqualTo(transactionalMessage));
+                        }
                     }
 
                     // Further inserts
@@ -767,16 +781,25 @@ CREATE PUBLICATION {publicationName} FOR TABLE {tableName};
                     Assert.That(msg.Flags, Is.EqualTo(0));
                     Assert.That(msg.Prefix, Is.EqualTo(prefix));
                     Assert.That(msg.Data.Length, Is.EqualTo(nonTransactionalMessage.Length));
-                    var buffer = new MemoryStream();
-                    await msg.Data.CopyToAsync(buffer, CancellationToken.None);
-                    Assert.That(rc.Encoding.GetString(buffer.ToArray()), Is.EqualTo(nonTransactionalMessage));
+                    if (readMessages)
+                    {
+                        var buffer = new MemoryStream();
+                        await msg.Data.CopyToAsync(buffer, CancellationToken.None);
+                        Assert.That(rc.Encoding.GetString(buffer.ToArray()), Is.EqualTo(nonTransactionalMessage));
+                    }
+
                     if (IsStreaming)
                         await messages.MoveNextAsync();
                 }
 
                 // Rollback Transaction 2
                 if (IsStreaming)
-                    Assert.That(messages.Current, Is.TypeOf<StreamAbortMessage>());
+                {
+                    Assert.That(messages.Current,
+                        _streamingMode == PgOutputStreamingMode.On
+                            ? Is.TypeOf<StreamAbortMessage>()
+                            : Is.TypeOf<ParallelStreamAbortMessage>());
+                }
 
                 streamingCts.Cancel();
                 await AssertReplicationCancellation(messages);
@@ -1076,7 +1099,7 @@ CREATE PUBLICATION {publicationName} FOR TABLE {tableName};");
     {
         // Streaming of prepared transaction is only supported for
         // logical streaming replication protocol >= 3
-        if (_protocolVersion < 3UL)
+        if (protocolVersion < PgOutputProtocolVersion.V3)
             return Task.CompletedTask;
 
         return SafePgOutputReplicationTest(
@@ -1156,7 +1179,7 @@ CREATE PUBLICATION {publicationName} FOR TABLE {tableName};");
     public Task Bug4633()
     {
         // We don't need all the various test cases here since the bug gets triggered in any case
-        if (IsStreaming || IsBinary || Version > 1)
+        if (IsStreaming || IsBinary || Version > PgOutputProtocolVersion.V1)
             return Task.CompletedTask;
 
         return SafePgOutputReplicationTest(
@@ -1252,6 +1275,84 @@ INSERT INTO {tableNames[0]} VALUES ('5F89F5FE-6F4F-465F-BB87-716B1413F88D', 'ano
                 await rc.DropReplicationSlot(slotName, cancellationToken: CancellationToken.None);
             }, 2);
     }
+
+    [Test(Description = $"Tests whether {nameof(FullUpdateMessage)} instances with unchanged toasted values behave as expected."), Explicit("Massive inserts")]
+    public  Task Update_for_full_replica_identity_with_unchanged_toasted_value()
+        => SafeReplicationTest(
+            async (slotName, tableName, publicationName) =>
+            {
+                await using var c = await OpenConnectionAsync();
+                await c.ExecuteNonQueryAsync($$"""
+                                               CREATE TABLE {{tableName}} (id INT PRIMARY KEY, name JSONB NOT NULL, something_else INT NULL);
+                                               ALTER TABLE {{tableName}} REPLICA IDENTITY FULL;
+                                               INSERT INTO {{tableName}} SELECT i, ('{"row_' || i::text || '": [{{string.Join(", ", Enumerable.Range(1, 1024))}}]}')::jsonb, NULL FROM generate_series(1, 15000) s(i);
+                                               CREATE PUBLICATION {{publicationName}} FOR TABLE {{tableName}};
+                                               """);
+                await using var rc = await OpenReplicationConnectionAsync();
+                var slot = await rc.CreatePgOutputReplicationSlot(slotName);
+
+                await using var tran = await c.BeginTransactionAsync();
+                await c.ExecuteNonQueryAsync($"""
+                                              UPDATE {tableName} SET name='"val1_updated"' WHERE id = 1;
+                                              UPDATE {tableName} SET something_else = id WHERE id > 1
+                                              """);
+                await tran.CommitAsync();
+
+                using var streamingCts = new CancellationTokenSource();
+                var messages = SkipEmptyTransactions(rc.StartReplication(slot, GetOptions(publicationName), streamingCts.Token))
+                    .GetAsyncEnumerator();
+
+                // Begin Transaction
+                var transactionXid = await AssertTransactionStart(messages);
+
+                // Relation
+                var relationMsg = await NextMessage<RelationMessage>(messages);
+
+                // Update of the first row (updating the jsonb column)
+                var updateMsg = await NextMessage<FullUpdateMessage>(messages);
+                Assert.That(updateMsg.TransactionXid, IsStreaming ? Is.EqualTo(transactionXid) : Is.Null);
+                Assert.That(updateMsg.Relation, Is.SameAs(relationMsg));
+
+                var newRowColumnEnumerator = updateMsg.NewRow.GetAsyncEnumerator();
+                Assert.That(await newRowColumnEnumerator.MoveNextAsync(), Is.True);
+                Assert.That(await newRowColumnEnumerator.MoveNextAsync(), Is.True);
+                Assert.That(newRowColumnEnumerator.Current.IsUnchangedToastedValue, Is.False);
+                Assert.That(await newRowColumnEnumerator.Current.Get<object>(), Is.EqualTo("\"val1_updated\""));
+                Assert.That(await newRowColumnEnumerator.MoveNextAsync(), Is.True);
+                Assert.That(newRowColumnEnumerator.Current.IsDBNull, Is.True);
+                Assert.That(await newRowColumnEnumerator.MoveNextAsync(), Is.False);
+
+
+                // Update of the following rows (not updating the jsonb column)
+                updateMsg = await NextMessage<FullUpdateMessage>(messages);
+                Assert.That(updateMsg.TransactionXid, IsStreaming ? Is.EqualTo(transactionXid) : Is.Null);
+                Assert.That(updateMsg.Relation, Is.SameAs(relationMsg));
+
+                newRowColumnEnumerator = updateMsg.NewRow.GetAsyncEnumerator();
+                Assert.That(await newRowColumnEnumerator.MoveNextAsync(), Is.True);
+                Assert.That(await newRowColumnEnumerator.MoveNextAsync(), Is.True);
+                Assert.That(newRowColumnEnumerator.Current.IsUnchangedToastedValue, Is.True);
+                Assert.That(async () => await newRowColumnEnumerator.Current.Get<object>(),
+                    Throws.TypeOf<InvalidCastException>()
+                        .With.Message.EqualTo("Column 'name' is an unchanged TOASTed value (actual value not sent)."));
+                Assert.That(await newRowColumnEnumerator.MoveNextAsync(), Is.True);
+                Assert.That(newRowColumnEnumerator.Current.IsDBNull, Is.False);
+                Assert.That(await newRowColumnEnumerator.MoveNextAsync(), Is.False);
+
+                // Remaining updates
+                for (var updateCount = 0; updateCount < 14998; updateCount++)
+                    await NextMessage<FullUpdateMessage>(messages);
+
+                // Commit Transaction
+                await AssertTransactionCommit(messages);
+
+                streamingCts.Cancel();
+                Assert.That(async () => await messages.MoveNextAsync(), Throws.Exception.AssignableTo<OperationCanceledException>()
+                    .With.InnerException.InstanceOf<PostgresException>()
+                    .And.InnerException.Property(nameof(PostgresException.SqlState))
+                    .EqualTo(PostgresErrorCodes.QueryCanceled));
+                await rc.DropReplicationSlot(slotName, cancellationToken: CancellationToken.None);
+            });
 
     #region Non-Test stuff (helper methods, initialization, enums, ...)
 
@@ -1361,7 +1462,7 @@ INSERT INTO {tableNames[0]} VALUES ('5F89F5FE-6F4F-465F-BB87-716B1413F88D', 'ano
     }
 
     PgOutputReplicationOptions GetOptions(string publicationName, bool? messages = null)
-        => new(publicationName, _protocolVersion, _binary, _streaming, messages);
+        => new(publicationName, protocolVersion, _binary, _streamingMode, messages);
 
     Task SafePgOutputReplicationTest(Func<string, string, string, Task> testAction, [CallerMemberName] string memberName = "")
         => SafeReplicationTest(testAction, GetObjectName(memberName));
@@ -1372,11 +1473,11 @@ INSERT INTO {tableNames[0]} VALUES ('5F89F5FE-6F4F-465F-BB87-716B1413F88D', 'ano
     string GetObjectName(string memberName)
     {
         var sb = new StringBuilder(memberName)
-            .Append("_v").Append(_protocolVersion);
+            .Append("_v").Append(protocolVersion);
         if (_binary.HasValue)
             sb.Append("_b_").Append(BoolToChar(_binary.Value));
-        if (_streaming.HasValue)
-            sb.Append("_s_").Append(BoolToChar(_streaming.Value));
+        if (_streamingMode.HasValue)
+            sb.Append("_s_").Append(_streamingMode.Value);
         return sb.ToString();
     }
 
@@ -1391,15 +1492,25 @@ INSERT INTO {tableNames[0]} VALUES ('5F89F5FE-6F4F-465F-BB87-716B1413F88D', 'ano
     {
         await using var c = await OpenConnectionAsync();
         TestUtil.MinimumPgVersion(c, "10.0", "The Logical Replication Protocol (via pgoutput plugin) was introduced in PostgreSQL 10");
-        if (_protocolVersion > 2)
+        if (protocolVersion > PgOutputProtocolVersion.V3)
+            TestUtil.MinimumPgVersion(c, "16.0", "Logical Streaming Replication Protocol version 4 was introduced in PostgreSQL 16");
+        if (protocolVersion > PgOutputProtocolVersion.V2)
             TestUtil.MinimumPgVersion(c, "15.0", "Logical Streaming Replication Protocol version 3 was introduced in PostgreSQL 15");
-        if (_protocolVersion > 1)
+        if (protocolVersion > PgOutputProtocolVersion.V1)
             TestUtil.MinimumPgVersion(c, "14.0", "Logical Streaming Replication Protocol version 2 was introduced in PostgreSQL 14");
         if (IsBinary)
             TestUtil.MinimumPgVersion(c, "14.0", "Sending replication values in binary representation was introduced in PostgreSQL 14");
         if (IsStreaming)
         {
-            TestUtil.MinimumPgVersion(c, "14.0", "Streaming of in-progress transactions was introduced in PostgreSQL 14");
+            switch (_streamingMode)
+            {
+            case PgOutputStreamingMode.On:
+                TestUtil.MinimumPgVersion(c, "14.0", "Streaming of in-progress transactions was introduced in PostgreSQL 14");
+                break;
+            case PgOutputStreamingMode.Parallel:
+                TestUtil.MinimumPgVersion(c, "16.0", "Parallel streaming of in-progress transactions was introduced in PostgreSQL 16");
+                break;
+            }
             var logicalDecodingWorkMem = (string)(await c.ExecuteScalarAsync("SHOW logical_decoding_work_mem"))!;
             if (logicalDecodingWorkMem != "64kB")
             {
@@ -1410,12 +1521,6 @@ INSERT INTO {tableNames[0]} VALUES ('5F89F5FE-6F4F-465F-BB87-716B1413F88D', 'ano
         }
     }
 
-    public enum ProtocolVersion : ulong
-    {
-        V1 = 1UL,
-        V2 = 2UL,
-        V3 = 3UL,
-    }
     public enum ReplicationDataMode
     {
         DefaultReplicationDataMode,
@@ -1427,6 +1532,7 @@ INSERT INTO {tableNames[0]} VALUES ('5F89F5FE-6F4F-465F-BB87-716B1413F88D', 'ano
         DefaultTransactionMode,
         NonStreamingTransactionMode,
         StreamingTransactionMode,
+        ParallelStreamingTransactionMode
     }
 
     #endregion Non-Test stuff (helper methods, initialization, ennums, ...)

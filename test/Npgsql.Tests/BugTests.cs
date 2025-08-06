@@ -1,6 +1,5 @@
 ﻿using Npgsql.BackendMessages;
 using Npgsql.Tests.Support;
-using Npgsql.TypeMapping;
 using NpgsqlTypes;
 using NUnit.Framework;
 using System;
@@ -9,12 +8,15 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Transactions;
+using Npgsql.Internal.Postgres;
 using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests;
 
 public class BugTests : TestBase
 {
+    static uint ByteaOid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Bytea).Value;
+
     #region Sequential reader bugs
 
     [Test, Description("In sequential access, performing a null check on a non-first field would check the first field")]
@@ -71,18 +73,6 @@ public class BugTests : TestBase
             .Or.EqualTo(PostgresErrorCodes.TooManyColumns)); // PostgreSQL 14.5, 13.8, 12.12, 11.17 and 10.22 changed the returned error
     }
 
-    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/1238")]
-    public void Record_with_non_int_field()
-    {
-        using var conn = OpenConnection();
-        using var cmd = new NpgsqlCommand("SELECT ('one'::TEXT, 2)", conn);
-        using var reader = cmd.ExecuteReader();
-        reader.Read();
-        var record = reader.GetFieldValue<object[]>(0);
-        Assert.That(record[0], Is.EqualTo("one"));
-        Assert.That(record[1], Is.EqualTo(2));
-    }
-
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/1450")]
     public void Bug1450()
     {
@@ -125,7 +115,8 @@ public class BugTests : TestBase
             CommandTimeout = 1,
         };
         await using var postmasterMock = PgPostmasterMock.Start(csb.ConnectionString);
-        await using var conn = await OpenConnectionAsync(postmasterMock.ConnectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
         var serverMock = await postmasterMock.WaitForServerConnection();
         await serverMock
             .WriteCopyInResponse()
@@ -152,26 +143,25 @@ public class BugTests : TestBase
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/1558")]
     public void Bug1558()
     {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
+        using var dataSource = CreateDataSource(csb =>
         {
-            Pooling = false,
-            Enlist = true
-        };
+            csb.Pooling = false;
+            csb.Enlist = true;
+        });
         using var tx = new TransactionScope();
-        using var conn = new NpgsqlConnection(csb.ToString());
-        conn.Open();
+        using var conn = dataSource.OpenConnection();
     }
 
     [Test]
     public void Bug1695()
     {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
+        using var dataSource = CreateDataSource(csb =>
         {
-            Pooling = false,
-            MaxAutoPrepare = 10,
-            AutoPrepareMinUsages = 1
-        };
-        using var conn = OpenConnection(csb);
+            csb.Pooling = false;
+            csb.MaxAutoPrepare = 10;
+            csb.AutoPrepareMinUsages = 1;
+        });
+        using var conn = dataSource.OpenConnection();
         using (var cmd = new NpgsqlCommand("SELECT 1; SELECT 2", conn))
         using (var reader = cmd.ExecuteReader())
         {
@@ -184,8 +174,7 @@ public class BugTests : TestBase
 
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/1700")]
     public void Bug1700()
-    {
-        Assert.That(() =>
+        => Assert.That(() =>
         {
             using var conn = OpenConnection();
             using var tx = conn.BeginTransaction();
@@ -207,7 +196,6 @@ public class BugTests : TestBase
             // Note, we never get here
             tx.Commit();
         }, Throws.InvalidOperationException.With.Message.EqualTo("Some problem parsing the returned data"));
-    }
 
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/1964")]
     public void Bug1964()
@@ -288,13 +276,13 @@ public class BugTests : TestBase
     [Test]
     public void Bug1761()
     {
-        var connString = new NpgsqlConnectionStringBuilder(ConnectionString)
+        using var dataSource = CreateDataSource(csb =>
         {
-            Enlist = true,
-            Pooling = true,
-            MinPoolSize = 1,
-            MaxPoolSize = 1
-        }.ConnectionString;
+            csb.Enlist = true;
+            csb.Pooling = true;
+            csb.MinPoolSize = 1;
+            csb.MaxPoolSize = 1;
+        });
 
         for (var i = 0; i < 2; i++)
         {
@@ -306,7 +294,7 @@ public class BugTests : TestBase
                 // Ambient transaction is now unusable, attempts to enlist to it will fail. We should recover
                 // properly from this failure.
 
-                using (var connection = OpenConnection(connString))
+                using (var connection = dataSource.OpenConnection())
                 using (var cmd = new NpgsqlCommand("SELECT 1", connection))
                 {
                     cmd.CommandText = "select 1;";
@@ -375,32 +363,31 @@ CREATE TYPE {compositeType} AS (value {domainType})");
 
     [Test]
     [IssueLink("https://github.com/npgsql/npgsql/issues/2178")]
-    public void Bug2178()
+    public async Task Bug2178()
     {
-        var builder = new NpgsqlConnectionStringBuilder(ConnectionString)
+        await using var dataSource = CreateDataSource(csb =>
         {
-            AutoPrepareMinUsages = 2,
-            MaxAutoPrepare = 2
-        };
-        using var conn = new NpgsqlConnection(builder.ConnectionString);
-        using var cmd = new NpgsqlCommand();
-        conn.Open();
+            csb.AutoPrepareMinUsages = 2;
+            csb.MaxAutoPrepare = 2;
+        });
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var cmd = new NpgsqlCommand();
         cmd.Connection = conn;
 
         cmd.CommandText = "SELECT 1";
-        cmd.ExecuteScalar();
-        cmd.ExecuteScalar();
+        await cmd.ExecuteScalarAsync();
+        await cmd.ExecuteScalarAsync();
         Assert.That(cmd.IsPrepared);
 
         // Now executing a faulty command multiple times
         cmd.CommandText = "SELECT * FROM public.dummy_table_name";
         for (var i = 0; i < 3; ++i)
         {
-            Assert.Throws<PostgresException>(() => cmd.ExecuteScalar());
+            Assert.ThrowsAsync<PostgresException>(async () => await cmd.ExecuteScalarAsync());
         }
 
         cmd.CommandText = "SELECT 1";
-        cmd.ExecuteScalar();
+        await cmd.ExecuteScalarAsync();
         Assert.That(cmd.IsPrepared);
     }
 
@@ -1100,11 +1087,9 @@ CREATE TEMP TABLE ""OrganisatieQmo_Organisatie_QueryModelObjects_Imp""
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/2849")]
     public async Task Chunked_string_write_buffer_encoding_space()
     {
-        var builder = new NpgsqlConnectionStringBuilder(ConnectionString);
-        // write buffer size must be 8192 for this test to work
-        // so guard against changes to the default / a change in the test harness
-        builder.WriteBufferSize = 8192;
-        await using var conn = await OpenConnectionAsync(builder.ConnectionString);
+        // write buffer size must be 8192 for this test to work so guard against changes to the default / a change in the test harness
+        await using var dataSource = CreateDataSource(csb => csb.WriteBufferSize = 8192);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         var tableName = await CreateTempTable(conn, "col1 text, col2 text");
 
@@ -1128,11 +1113,9 @@ CREATE TEMP TABLE ""OrganisatieQmo_Organisatie_QueryModelObjects_Imp""
     [Test, IssueLink("https://github.com/npgsql/npgsql/issues/2849")]
     public async Task Chunked_char_array_write_buffer_encoding_space()
     {
-        var builder = new NpgsqlConnectionStringBuilder(ConnectionString);
-        // write buffer size must be 8192 for this test to work
-        // so guard against changes to the default / a change in the test harness
-        builder.WriteBufferSize = 8192;
-        await using var conn = await OpenConnectionAsync(builder.ConnectionString);
+        // write buffer size must be 8192 for this test to work so guard against changes to the default / a change in the test harness
+        await using var dataSource = CreateDataSource(csb => csb.WriteBufferSize = 8192);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         var tableName = await CreateTempTable(conn, "col1 text, col2 text");
 
@@ -1206,7 +1189,7 @@ BEGIN
 END;
 $$;");
 
-        Assert.ThrowsAsync<InvalidCastException>(async () => await connection.ExecuteScalarAsync($"SELECT {func}(0)"));
+        Assert.ThrowsAsync<NotSupportedException>(async () => await connection.ExecuteScalarAsync($"SELECT {func}(0)"));
     }
 
     [Test]
@@ -1215,9 +1198,9 @@ $$;");
     {
         const string OkCommand = "SELECT 1";
         const string ErrorCommand = "SELECT * FROM public.imnotexist";
-        using (var conn = new NpgsqlConnection(ConnectionString))
+        using var dataSource = CreateDataSource();
+        using (var conn = dataSource.OpenConnection())
         {
-            conn.Open();
             var okCommand = new NpgsqlCommand(OkCommand, conn);
             okCommand.Prepare();
             using (okCommand.ExecuteReader()) { }
@@ -1228,13 +1211,11 @@ $$;");
                 .With.Property(nameof(PostgresException.SqlState)).EqualTo(PostgresErrorCodes.UndefinedTable));
         }
 
-        using (var conn = new NpgsqlConnection(ConnectionString))
+        using (var conn = dataSource.OpenConnection())
         {
-            conn.Open();
             var okCommand = new NpgsqlCommand(OkCommand, conn);
             okCommand.Prepare();
             using (okCommand.ExecuteReader()) { }
-            conn.UnprepareAll();
         }
     }
 
@@ -1291,9 +1272,9 @@ $$;");
 
     [Test]
     [IssueLink("https://github.com/npgsql/npgsql/issues/3839")]
-    public async Task SingleThreadedSynchronizationContext_deadlock()
+    public async Task UIThreadSynchronizationContext_deadlock()
     {
-        var syncContext = new SingleThreadSynchronizationContext(nameof(SingleThreadedSynchronizationContext_deadlock));
+        var syncContext = new SingleThreadSynchronizationContext(nameof(UIThreadSynchronizationContext_deadlock));
         using (var _ = syncContext.Enter())
         {
             // We have to Yield, so the current thread is changed to the one used by SingleThreadSynchronizationContext
@@ -1321,7 +1302,8 @@ $$;");
         };
 
         await using var postmaster = PgPostmasterMock.Start(csb.ConnectionString);
-        await using var conn = await OpenConnectionAsync(postmaster.ConnectionString);
+        await using var dataSource = CreateDataSource(postmaster.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
         var serverMock = await postmaster.WaitForServerConnection();
 
         using (var cmd = conn.CreateCommand())
@@ -1360,10 +1342,10 @@ $$;");
             MaxPoolSize = 1
         };
         await using var postmaster = PgPostmasterMock.Start(csb.ConnectionString);
-        await using var firstConn = await OpenConnectionAsync(postmaster.ConnectionString);
-        await using var secondConn = await OpenConnectionAsync(postmaster.ConnectionString);
+        await using var dataSource = CreateDataSource(postmaster.ConnectionString);
+        await using var firstConn = await dataSource.OpenConnectionAsync();
+        await using var secondConn = await dataSource.OpenConnectionAsync();
 
-        var byteArrayLength = csb.WriteBufferSize + 100;
         var firstQuery = firstConn.ExecuteScalarAsync("SELECT data");
 
         var server = await postmaster.WaitForServerConnection();
@@ -1376,7 +1358,7 @@ $$;");
         await server
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Bytea))
+            .WriteRowDescription(new FieldDescription(ByteaOid))
             .WriteDataRowWithFlush(data);
 
         var otherData = new byte[10];
@@ -1385,7 +1367,7 @@ $$;");
             .WriteReadyForQuery()
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Bytea))
+            .WriteRowDescription(new FieldDescription(ByteaOid))
             .WriteDataRow(otherData)
             .WriteCommandComplete()
             .WriteReadyForQuery()
@@ -1399,12 +1381,12 @@ $$;");
     [IssueLink("https://github.com/npgsql/npgsql/issues/4123")]
     public async Task Bug4123()
     {
-        using var conn = OpenConnection();
-        using var cmd = new NpgsqlCommand("SELECT 1", conn);
-        using var rdr = await cmd.ExecuteReaderAsync();
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new NpgsqlCommand("SELECT 1", conn);
+        await using var rdr = await cmd.ExecuteReaderAsync();
 
         await rdr.ReadAsync();
-        using var stream = await rdr.GetStreamAsync(0);
+        await using var stream = await rdr.GetStreamAsync(0);
 
         Assert.DoesNotThrowAsync(stream.FlushAsync);
         Assert.DoesNotThrow(stream.Flush);

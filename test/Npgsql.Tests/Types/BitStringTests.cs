@@ -13,7 +13,7 @@ namespace Npgsql.Tests.Types;
 /// <remarks>
 /// https://www.postgresql.org/docs/current/static/datatype-bit.html
 /// </remarks>
-public class BitStringTests : MultiplexingTestBase
+public class BitStringTests(MultiplexingMode multiplexingMode) : MultiplexingTestBase(multiplexingMode)
 {
     [Test]
     [TestCase("10110110", TestName = "BitArray")]
@@ -51,7 +51,7 @@ public class BitStringTests : MultiplexingTestBase
 
     [Test]
     public Task BitVector32_too_long()
-        => AssertTypeUnsupportedRead<BitVector32>(new string('0', 34), "bit varying");
+        => AssertTypeUnsupportedRead<BitVector32, InvalidCastException>(new string('0', 34), "bit varying");
 
     [Test]
     public Task Bool()
@@ -60,8 +60,8 @@ public class BitStringTests : MultiplexingTestBase
     [Test]
     public async Task Bitstring_with_multiple_bits_as_bool_throws()
     {
-        await AssertTypeUnsupportedRead<bool>("01", "varbit");
-        await AssertTypeUnsupportedRead<bool>("01", "bit(2)");
+        await AssertTypeUnsupportedRead<bool, InvalidCastException>("01", "varbit");
+        await AssertTypeUnsupportedRead<bool, InvalidCastException>("01", "bit(2)");
     }
 
     [Test]
@@ -69,7 +69,7 @@ public class BitStringTests : MultiplexingTestBase
     {
         using var conn = await OpenConnectionAsync();
         using var cmd = new NpgsqlCommand("SELECT @p", conn);
-        var expected = new[] { new BitArray(new[] { true, false, true }), new BitArray(new[] { false }) };
+        var expected = new[] { new BitArray([true, false, true]), new BitArray([false]) };
         var p = new NpgsqlParameter("p", NpgsqlDbType.Array | NpgsqlDbType.Varbit) { Value = expected };
         cmd.Parameters.Add(p);
         p.Value = expected;
@@ -99,16 +99,28 @@ public class BitStringTests : MultiplexingTestBase
     }
 
     [Test]
-    public Task Write_as_string()
-        => AssertTypeWrite("010101", "010101", "bit varying", NpgsqlDbType.Varbit, isDefault: false);
+    public async Task Array_of_single_bits_and_null()
+    {
+        var dataSource = CreateDataSource(builder => builder.ArrayNullabilityMode = ArrayNullabilityMode.Always);
+        using var conn = await dataSource.OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand("SELECT @p::BIT(1)[]", conn);
+        var expected = new bool?[] { true, false, null };
+        var p = new NpgsqlParameter("p", NpgsqlDbType.Array | NpgsqlDbType.Bit) {Value = expected};
+        cmd.Parameters.Add(p);
+        p.Value = expected;
+        using var reader = await cmd.ExecuteReaderAsync();
+        reader.Read();
+        var x = reader.GetValue(0);
+        Assert.That(reader.GetValue(0), Is.EqualTo(expected));
+        Assert.That(reader.GetFieldValue<bool?[]>(0), Is.EqualTo(expected));
+        Assert.That(reader.GetFieldType(0), Is.EqualTo(typeof(Array)));
+    }
+
+    [Test]
+    public Task As_string()
+        => AssertType("010101", "010101", "bit varying", NpgsqlDbType.Varbit, isDefault: false);
 
     [Test]
     public Task Write_as_string_validation()
-        => AssertTypeUnsupportedWrite<string, FormatException>("001q0", "bit varying");
-
-    [Test]
-    public Task Read_as_string_is_not_supported()
-        => AssertTypeUnsupportedRead<string, NotSupportedException>("010101", "bit varying");
-
-    public BitStringTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
+        => AssertTypeUnsupportedWrite<string, ArgumentException>("001q0", "bit varying");
 }

@@ -1,15 +1,15 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
-using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Npgsql.Internal.TypeHandling;
-using Npgsql.Internal.TypeMapping;
-using Npgsql.Properties;
+using Npgsql.Internal;
+using Npgsql.Internal.ResolverFactories;
+using Npgsql.NameTranslation;
 using Npgsql.TypeMapping;
 using NpgsqlTypes;
 
@@ -18,44 +18,83 @@ namespace Npgsql;
 /// <summary>
 /// Provides a simple API for configuring and creating an <see cref="NpgsqlDataSource" />, from which database connections can be obtained.
 /// </summary>
-public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
+public sealed class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
 {
-    ILoggerFactory? _loggerFactory;
-    bool _sensitiveDataLoggingEnabled;
+    static UnsupportedTypeInfoResolver<NpgsqlDataSourceBuilder> UnsupportedTypeInfoResolver { get; } = new();
 
-    RemoteCertificateValidationCallback? _userCertificateValidationCallback;
-    Action<X509CertificateCollection>? _clientCertificatesCallback;
+    readonly NpgsqlSlimDataSourceBuilder _internalBuilder;
 
-    Func<NpgsqlConnectionStringBuilder, CancellationToken, ValueTask<string>>? _periodicPasswordProvider;
-    TimeSpan _periodicPasswordSuccessRefreshInterval, _periodicPasswordFailureRefreshInterval;
-
-    readonly List<TypeHandlerResolverFactory> _resolverFactories = new();
-    readonly Dictionary<string, IUserTypeMapping> _userTypeMappings = new();
+    /// <summary>
+    /// A diagnostics name used by Npgsql when generating tracing, logging and metrics.
+    /// </summary>
+    public string? Name
+    {
+        get => _internalBuilder.Name;
+        set => _internalBuilder.Name = value;
+    }
 
     /// <inheritdoc />
-    public INpgsqlNameTranslator DefaultNameTranslator { get; set; } = GlobalTypeMapper.Instance.DefaultNameTranslator;
-
-    Action<NpgsqlConnection>? _syncConnectionInitializer;
-    Func<NpgsqlConnection, Task>? _asyncConnectionInitializer;
+    public INpgsqlNameTranslator DefaultNameTranslator
+    {
+        get => _internalBuilder.DefaultNameTranslator;
+        set => _internalBuilder.DefaultNameTranslator = value;
+    }
 
     /// <summary>
     /// A connection string builder that can be used to configured the connection string on the builder.
     /// </summary>
-    public NpgsqlConnectionStringBuilder ConnectionStringBuilder { get; }
+    public NpgsqlConnectionStringBuilder ConnectionStringBuilder => _internalBuilder.ConnectionStringBuilder;
 
     /// <summary>
     /// Returns the connection string, as currently configured on the builder.
     /// </summary>
-    public string ConnectionString => ConnectionStringBuilder.ToString();
+    public string ConnectionString => _internalBuilder.ConnectionString;
+
+    internal static void ResetGlobalMappings(bool overwrite)
+        => GlobalTypeMapper.Instance.AddGlobalTypeMappingResolvers([
+            overwrite ? new AdoTypeInfoResolverFactory() : AdoTypeInfoResolverFactory.Instance,
+            new ExtraConversionResolverFactory(),
+            new JsonTypeInfoResolverFactory(),
+            new RecordTypeInfoResolverFactory(),
+            new FullTextSearchTypeInfoResolverFactory(),
+            new NetworkTypeInfoResolverFactory(),
+            new GeometricTypeInfoResolverFactory(),
+            new LTreeTypeInfoResolverFactory()
+        ], static () =>
+        {
+            var builder = new PgTypeInfoResolverChainBuilder();
+            builder.EnableRanges();
+            builder.EnableMultiranges();
+            builder.EnableArrays();
+            return builder;
+        }, overwrite);
+
+    static NpgsqlDataSourceBuilder()
+        => ResetGlobalMappings(overwrite: false);
 
     /// <summary>
     /// Constructs a new <see cref="NpgsqlDataSourceBuilder" />, optionally starting out from the given <paramref name="connectionString"/>.
     /// </summary>
     public NpgsqlDataSourceBuilder(string? connectionString = null)
     {
-        ConnectionStringBuilder = new NpgsqlConnectionStringBuilder(connectionString);
-
-        ResetTypeMappings();
+        _internalBuilder = new(new NpgsqlConnectionStringBuilder(connectionString));
+        _internalBuilder.ConfigureDefaultFactories = static instance =>
+        {
+            instance.AppendDefaultFactories();
+            instance.AppendResolverFactory(new ExtraConversionResolverFactory());
+            instance.AppendResolverFactory(() => new JsonTypeInfoResolverFactory(instance.JsonSerializerOptions));
+            instance.AppendResolverFactory(new RecordTypeInfoResolverFactory());
+            instance.AppendResolverFactory(new FullTextSearchTypeInfoResolverFactory());
+            instance.AppendResolverFactory(new NetworkTypeInfoResolverFactory());
+            instance.AppendResolverFactory(new GeometricTypeInfoResolverFactory());
+            instance.AppendResolverFactory(new LTreeTypeInfoResolverFactory());
+        };
+        _internalBuilder.ConfigureResolverChain = static chain => chain.Add(UnsupportedTypeInfoResolver);
+        _internalBuilder.EnableTransportSecurity();
+        _internalBuilder.EnableIntegratedSecurity();
+        _internalBuilder.EnableRanges();
+        _internalBuilder.EnableMultiranges();
+        _internalBuilder.EnableArrays();
     }
 
     /// <summary>
@@ -65,7 +104,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     public NpgsqlDataSourceBuilder UseLoggerFactory(ILoggerFactory? loggerFactory)
     {
-        _loggerFactory = loggerFactory;
+        _internalBuilder.UseLoggerFactory(loggerFactory);
         return this;
     }
 
@@ -78,7 +117,82 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
     public NpgsqlDataSourceBuilder EnableParameterLogging(bool parameterLoggingEnabled = true)
     {
-        _sensitiveDataLoggingEnabled = parameterLoggingEnabled;
+        _internalBuilder.EnableParameterLogging(parameterLoggingEnabled);
+        return this;
+    }
+
+    /// <summary>
+    /// Configures type loading options for the DataSource.
+    /// </summary>
+    public NpgsqlDataSourceBuilder ConfigureTypeLoading(Action<NpgsqlTypeLoadingOptionsBuilder> configureAction)
+    {
+        _internalBuilder.ConfigureTypeLoading(configureAction);
+        return this;
+    }
+
+    /// <summary>
+    /// Configures OpenTelemetry tracing options.
+    /// </summary>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public NpgsqlDataSourceBuilder ConfigureTracing(Action<NpgsqlTracingOptionsBuilder> configureAction)
+    {
+        _internalBuilder.ConfigureTracing(configureAction);
+        return this;
+    }
+
+    /// <summary>
+    /// Configures the JSON serializer options used when reading and writing all System.Text.Json data.
+    /// </summary>
+    /// <param name="serializerOptions">Options to customize JSON serialization and deserialization.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public NpgsqlDataSourceBuilder ConfigureJsonOptions(JsonSerializerOptions serializerOptions)
+    {
+        _internalBuilder.ConfigureJsonOptions(serializerOptions);
+        return this;
+    }
+
+    /// <summary>
+    /// Sets up dynamic System.Text.Json mappings. This allows mapping arbitrary .NET types to PostgreSQL <c>json</c> and <c>jsonb</c>
+    /// types, as well as <see cref="JsonNode" /> and its derived types.
+    /// </summary>
+    /// <param name="jsonbClrTypes">
+    /// A list of CLR types to map to PostgreSQL <c>jsonb</c> (no need to specify <see cref="NpgsqlDbType.Jsonb" />).
+    /// </param>
+    /// <param name="jsonClrTypes">
+    /// A list of CLR types to map to PostgreSQL <c>json</c> (no need to specify <see cref="NpgsqlDbType.Json" />).
+    /// </param>
+    /// <remarks>
+    /// Due to the dynamic nature of these mappings, they are not compatible with NativeAOT or trimming.
+    /// </remarks>
+    [RequiresUnreferencedCode("Json serializer may perform reflection on trimmed types.")]
+    [RequiresDynamicCode("Serializing arbitrary types to json can require creating new generic types or methods, which requires creating code at runtime. This may not work when AOT compiling.")]
+    public NpgsqlDataSourceBuilder EnableDynamicJson(Type[]? jsonbClrTypes = null, Type[]? jsonClrTypes = null)
+    {
+        _internalBuilder.EnableDynamicJson(jsonbClrTypes, jsonClrTypes);
+        return this;
+    }
+
+    /// <summary>
+    /// Sets up mappings for the PostgreSQL <c>record</c> type as a .NET <see cref="ValueTuple" /> or <see cref="Tuple" />.
+    /// </summary>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    [RequiresUnreferencedCode("The mapping of PostgreSQL records as .NET tuples requires reflection usage which is incompatible with trimming.")]
+    [RequiresDynamicCode("The mapping of PostgreSQL records as .NET tuples requires dynamic code usage which is incompatible with NativeAOT.")]
+    public NpgsqlDataSourceBuilder EnableRecordsAsTuples()
+    {
+        AddTypeInfoResolverFactory(new TupledRecordTypeInfoResolverFactory());
+        return this;
+    }
+
+    /// <summary>
+    /// Sets up mappings allowing the use of unmapped enum, range and multirange types.
+    /// </summary>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    [RequiresUnreferencedCode("The use of unmapped enums, ranges or multiranges requires reflection usage which is incompatible with trimming.")]
+    [RequiresDynamicCode("The use of unmapped enums, ranges or multiranges requires dynamic code usage which is incompatible with NativeAOT.")]
+    public NpgsqlDataSourceBuilder EnableUnmappedTypes()
+    {
+        AddTypeInfoResolverFactory(new UnmappedTypeInfoResolverFactory());
         return this;
     }
 
@@ -99,11 +213,10 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </para>
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
-    public NpgsqlDataSourceBuilder UseUserCertificateValidationCallback(
-        RemoteCertificateValidationCallback userCertificateValidationCallback)
+    [Obsolete("Use UseSslClientAuthenticationOptionsCallback")]
+    public NpgsqlDataSourceBuilder UseUserCertificateValidationCallback(RemoteCertificateValidationCallback userCertificateValidationCallback)
     {
-        _userCertificateValidationCallback = userCertificateValidationCallback;
-
+        _internalBuilder.UseUserCertificateValidationCallback(userCertificateValidationCallback);
         return this;
     }
 
@@ -112,13 +225,11 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </summary>
     /// <param name="clientCertificate">The client certificate to be sent to PostgreSQL when opening a connection.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    [Obsolete("Use UseSslClientAuthenticationOptionsCallback")]
     public NpgsqlDataSourceBuilder UseClientCertificate(X509Certificate? clientCertificate)
     {
-        if (clientCertificate is null)
-            return UseClientCertificatesCallback(null);
-
-        var clientCertificates = new X509CertificateCollection { clientCertificate };
-        return UseClientCertificates(clientCertificates);
+        _internalBuilder.UseClientCertificate(clientCertificate);
+        return this;
     }
 
     /// <summary>
@@ -126,8 +237,28 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </summary>
     /// <param name="clientCertificates">The client certificate collection to be sent to PostgreSQL when opening a connection.</param>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    [Obsolete("Use UseSslClientAuthenticationOptionsCallback")]
     public NpgsqlDataSourceBuilder UseClientCertificates(X509CertificateCollection? clientCertificates)
-        => UseClientCertificatesCallback(clientCertificates is null ? null : certs => certs.AddRange(clientCertificates));
+    {
+        _internalBuilder.UseClientCertificates(clientCertificates);
+        return this;
+    }
+
+    /// <summary>
+    /// When using SSL/TLS, this is a callback that allows customizing SslStream's authentication options.
+    /// </summary>
+    /// <param name="sslClientAuthenticationOptionsCallback">The callback to customize SslStream's authentication options.</param>
+    /// <remarks>
+    /// <para>
+    /// See <see href="https://learn.microsoft.com/en-us/dotnet/api/system.net.security.sslclientauthenticationoptions?view=net-8.0"/>.
+    /// </para>
+    /// </remarks>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public NpgsqlDataSourceBuilder UseSslClientAuthenticationOptionsCallback(Action<SslClientAuthenticationOptions>? sslClientAuthenticationOptionsCallback)
+    {
+        _internalBuilder.UseSslClientAuthenticationOptionsCallback(sslClientAuthenticationOptionsCallback);
+        return this;
+    }
 
     /// <summary>
     /// Specifies a callback to modify the collection of SSL/TLS client certificates which Npgsql will send to PostgreSQL for
@@ -146,10 +277,37 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// </para>
     /// </remarks>
     /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    [Obsolete("Use UseSslClientAuthenticationOptionsCallback")]
     public NpgsqlDataSourceBuilder UseClientCertificatesCallback(Action<X509CertificateCollection>? clientCertificatesCallback)
     {
-        _clientCertificatesCallback = clientCertificatesCallback;
+        _internalBuilder.UseClientCertificatesCallback(clientCertificatesCallback);
+        return this;
+    }
 
+    /// <summary>
+    /// Sets the <see cref="X509Certificate2" /> that will be used validate SSL certificate, received from the server.
+    /// </summary>
+    /// <param name="rootCertificate">The CA certificate.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public NpgsqlDataSourceBuilder UseRootCertificate(X509Certificate2? rootCertificate)
+    {
+        _internalBuilder.UseRootCertificate(rootCertificate);
+        return this;
+    }
+
+    /// <summary>
+    /// Specifies a callback that will be used to validate SSL certificate, received from the server.
+    /// </summary>
+    /// <param name="rootCertificateCallback">The callback to get CA certificate.</param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    /// <remarks>
+    /// This overload, which accepts a callback, is suitable for scenarios where the certificate rotates
+    /// and might change during the lifetime of the application.
+    /// When that's not the case, use the overload which directly accepts the certificate.
+    /// </remarks>
+    public NpgsqlDataSourceBuilder UseRootCertificateCallback(Func<X509Certificate2>? rootCertificateCallback)
+    {
+        _internalBuilder.UseRootCertificateCallback(rootCertificateCallback);
         return this;
     }
 
@@ -178,17 +336,47 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
         TimeSpan successRefreshInterval,
         TimeSpan failureRefreshInterval)
     {
-        if (successRefreshInterval < TimeSpan.Zero)
-            throw new ArgumentException(
-                string.Format(NpgsqlStrings.ArgumentMustBePositive, nameof(successRefreshInterval)), nameof(successRefreshInterval));
-        if (failureRefreshInterval < TimeSpan.Zero)
-            throw new ArgumentException(
-                string.Format(NpgsqlStrings.ArgumentMustBePositive, nameof(failureRefreshInterval)), nameof(failureRefreshInterval));
+        _internalBuilder.UsePeriodicPasswordProvider(passwordProvider, successRefreshInterval, failureRefreshInterval);
+        return this;
+    }
 
-        _periodicPasswordProvider = passwordProvider;
-        _periodicPasswordSuccessRefreshInterval = successRefreshInterval;
-        _periodicPasswordFailureRefreshInterval = failureRefreshInterval;
+    /// <summary>
+    /// Configures a password provider, which is called by the data source when opening connections.
+    /// </summary>
+    /// <param name="passwordProvider">
+    /// A callback that may be invoked during <see cref="NpgsqlConnection.Open()" /> which returns the password to be sent to PostgreSQL.
+    /// </param>
+    /// <param name="passwordProviderAsync">
+    /// A callback that may be invoked during <see cref="NpgsqlConnection.OpenAsync(CancellationToken)" /> which returns the password to be sent to PostgreSQL.
+    /// </param>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    /// <remarks>
+    /// <para>
+    /// The provided callback is invoked when opening connections. Therefore its important the callback internally depends on cached
+    /// data or returns quickly otherwise. Any unnecessary delay will affect connection opening time.
+    /// </para>
+    /// </remarks>
+    public NpgsqlDataSourceBuilder UsePasswordProvider(
+        Func<NpgsqlConnectionStringBuilder, string>? passwordProvider,
+        Func<NpgsqlConnectionStringBuilder, CancellationToken, ValueTask<string>>? passwordProviderAsync)
+    {
+        _internalBuilder.UsePasswordProvider(passwordProvider, passwordProviderAsync);
+        return this;
+    }
 
+    /// <summary>
+    /// When using Kerberos, this is a callback that allows customizing default settings for Kerberos authentication.
+    /// </summary>
+    /// <param name="negotiateOptionsCallback">The callback containing logic to customize Kerberos authentication settings.</param>
+    /// <remarks>
+    /// <para>
+    /// See <see href="https://learn.microsoft.com/en-us/dotnet/api/system.net.security.negotiateauthenticationclientoptions?view=net-7.0"/>.
+    /// </para>
+    /// </remarks>
+    /// <returns>The same builder instance so that multiple calls can be chained.</returns>
+    public NpgsqlDataSourceBuilder UseNegotiateOptionsCallback(Action<NegotiateAuthenticationClientOptions>? negotiateOptionsCallback)
+    {
+        _internalBuilder.UseNegotiateOptionsCallback(negotiateOptionsCallback);
         return this;
     }
 
@@ -197,105 +385,143 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     #region Type mapping
 
     /// <inheritdoc />
-    public void AddTypeResolverFactory(TypeHandlerResolverFactory resolverFactory)
-        => _resolverFactories.Insert(0, resolverFactory);
+    public void AddTypeInfoResolverFactory(PgTypeInfoResolverFactory factory)
+        => _internalBuilder.AddTypeInfoResolverFactory(factory);
 
     /// <inheritdoc />
-    public INpgsqlTypeMapper MapEnum<TEnum>(string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
+    void INpgsqlTypeMapper.Reset() => ((INpgsqlTypeMapper)_internalBuilder).Reset();
+
+    /// <summary>
+    /// Maps a CLR enum to a PostgreSQL enum type.
+    /// </summary>
+    /// <remarks>
+    /// CLR enum labels are mapped by name to PostgreSQL enum labels.
+    /// The translation strategy can be controlled by the <paramref name="nameTranslator"/> parameter,
+    /// which defaults to <see cref="NpgsqlSnakeCaseNameTranslator"/>.
+    /// You can also use the <see cref="PgNameAttribute"/> on your enum fields to manually specify a PostgreSQL enum label.
+    /// If there is a discrepancy between the .NET and database labels while an enum is read or written,
+    /// an exception will be raised.
+    /// </remarks>
+    /// <param name="pgName">
+    /// A PostgreSQL type name for the corresponding enum type in the database.
+    /// If null, the name translator given in <paramref name="nameTranslator"/> will be used.
+    /// </param>
+    /// <param name="nameTranslator">
+    /// A component which will be used to translate CLR names (e.g. SomeClass) into database names (e.g. some_class).
+    /// Defaults to <see cref="DefaultNameTranslator" />.
+    /// </param>
+    /// <typeparam name="TEnum">The .NET enum type to be mapped</typeparam>
+    public NpgsqlDataSourceBuilder MapEnum<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TEnum>(string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
         where TEnum : struct, Enum
     {
-        if (pgName != null && pgName.Trim() == "")
-            throw new ArgumentException("pgName can't be empty", nameof(pgName));
-
-        nameTranslator ??= DefaultNameTranslator;
-        pgName ??= GetPgName(typeof(TEnum), nameTranslator);
-
-        _userTypeMappings[pgName] = new UserEnumTypeMapping<TEnum>(pgName, nameTranslator);
+        _internalBuilder.MapEnum<TEnum>(pgName, nameTranslator);
         return this;
     }
 
     /// <inheritdoc />
-    public bool UnmapEnum<TEnum>(string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
+    public bool UnmapEnum<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TEnum>(string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
         where TEnum : struct, Enum
+        => _internalBuilder.UnmapEnum<TEnum>(pgName, nameTranslator);
+
+    /// <summary>
+    /// Maps a CLR enum to a PostgreSQL enum type.
+    /// </summary>
+    /// <remarks>
+    /// CLR enum labels are mapped by name to PostgreSQL enum labels.
+    /// The translation strategy can be controlled by the <paramref name="nameTranslator"/> parameter,
+    /// which defaults to <see cref="NpgsqlSnakeCaseNameTranslator"/>.
+    /// You can also use the <see cref="PgNameAttribute"/> on your enum fields to manually specify a PostgreSQL enum label.
+    /// If there is a discrepancy between the .NET and database labels while an enum is read or written,
+    /// an exception will be raised.
+    /// </remarks>
+    /// <param name="clrType">The .NET enum type to be mapped</param>
+    /// <param name="pgName">
+    /// A PostgreSQL type name for the corresponding enum type in the database.
+    /// If null, the name translator given in <paramref name="nameTranslator"/> will be used.
+    /// </param>
+    /// <param name="nameTranslator">
+    /// A component which will be used to translate CLR names (e.g. SomeClass) into database names (e.g. some_class).
+    /// Defaults to <see cref="DefaultNameTranslator" />.
+    /// </param>
+    [RequiresDynamicCode("Calling MapEnum with a Type can require creating new generic types or methods. This may not work when AOT compiling.")]
+    public NpgsqlDataSourceBuilder MapEnum([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
     {
-        if (pgName != null && pgName.Trim() == "")
-            throw new ArgumentException("pgName can't be empty", nameof(pgName));
-
-        nameTranslator ??= DefaultNameTranslator;
-        pgName ??= GetPgName(typeof(TEnum), nameTranslator);
-
-        return _userTypeMappings.Remove(pgName);
-    }
-
-    /// <inheritdoc />
-    [RequiresUnreferencedCode("Composite type mapping currently isn't trimming-safe.")]
-    public INpgsqlTypeMapper MapComposite<T>(string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
-    {
-        if (pgName != null && pgName.Trim() == "")
-            throw new ArgumentException("pgName can't be empty", nameof(pgName));
-
-        nameTranslator ??= DefaultNameTranslator;
-        pgName ??= GetPgName(typeof(T), nameTranslator);
-
-        _userTypeMappings[pgName] = new UserCompositeTypeMapping<T>(pgName, nameTranslator);
+        _internalBuilder.MapEnum(clrType, pgName, nameTranslator);
         return this;
     }
 
     /// <inheritdoc />
-    [RequiresUnreferencedCode("Composite type mapping currently isn't trimming-safe.")]
-    public INpgsqlTypeMapper MapComposite(Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
-    {
-        var openMethod = typeof(NpgsqlDataSourceBuilder).GetMethod(nameof(MapComposite), new[] { typeof(string), typeof(INpgsqlNameTranslator) })!;
-        var method = openMethod.MakeGenericMethod(clrType);
-        method.Invoke(this, new object?[] { pgName, nameTranslator });
+    public bool UnmapEnum([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
+        => _internalBuilder.UnmapEnum(clrType, pgName, nameTranslator);
 
+    /// <summary>
+    /// Maps a CLR type to a PostgreSQL composite type.
+    /// </summary>
+    /// <remarks>
+    /// CLR fields and properties by string to PostgreSQL names.
+    /// The translation strategy can be controlled by the <paramref name="nameTranslator"/> parameter,
+    /// which defaults to <see cref="NpgsqlSnakeCaseNameTranslator"/>.
+    /// You can also use the <see cref="PgNameAttribute"/> on your members to manually specify a PostgreSQL name.
+    /// If there is a discrepancy between the .NET type and database type while a composite is read or written,
+    /// an exception will be raised.
+    /// </remarks>
+    /// <param name="pgName">
+    /// A PostgreSQL type name for the corresponding composite type in the database.
+    /// If null, the name translator given in <paramref name="nameTranslator"/> will be used.
+    /// </param>
+    /// <param name="nameTranslator">
+    /// A component which will be used to translate CLR names (e.g. SomeClass) into database names (e.g. some_class).
+    /// Defaults to <see cref="DefaultNameTranslator" />.
+    /// </param>
+    /// <typeparam name="T">The .NET type to be mapped</typeparam>
+    [RequiresDynamicCode("Mapping composite types involves serializing arbitrary types which can require creating new generic types or methods. This is currently unsupported with NativeAOT, vote on issue #5303 if this is important to you.")]
+    public NpgsqlDataSourceBuilder MapComposite<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)] T>(
+        string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
+    {
+        _internalBuilder.MapComposite(typeof(T), pgName, nameTranslator);
         return this;
     }
 
     /// <inheritdoc />
-    [RequiresUnreferencedCode("Composite type mapping currently isn't trimming-safe.")]
-    public bool UnmapComposite<T>(string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
-        => UnmapComposite(typeof(T), pgName, nameTranslator);
+    [RequiresDynamicCode("Mapping composite types involves serializing arbitrary types which can require creating new generic types or methods. This is currently unsupported with NativeAOT, vote on issue #5303 if this is important to you.")]
+    public bool UnmapComposite<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)] T>(
+        string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
+        => _internalBuilder.UnmapComposite(typeof(T), pgName, nameTranslator);
+
+    /// <summary>
+    /// Maps a CLR type to a composite type.
+    /// </summary>
+    /// <remarks>
+    /// Maps CLR fields and properties by string to PostgreSQL names.
+    /// The translation strategy can be controlled by the <paramref name="nameTranslator"/> parameter,
+    /// which defaults to <see cref="DefaultNameTranslator" />.
+    /// If there is a discrepancy between the .NET type and database type while a composite is read or written,
+    /// an exception will be raised.
+    /// </remarks>
+    /// <param name="clrType">The .NET type to be mapped.</param>
+    /// <param name="pgName">
+    /// A PostgreSQL type name for the corresponding composite type in the database.
+    /// If null, the name translator given in <paramref name="nameTranslator"/> will be used.
+    /// </param>
+    /// <param name="nameTranslator">
+    /// A component which will be used to translate CLR names (e.g. SomeClass) into database names (e.g. some_class).
+    /// Defaults to <see cref="DefaultNameTranslator" />.
+    /// </param>
+    [RequiresDynamicCode("Mapping composite types involves serializing arbitrary types which can require creating new generic types or methods. This is currently unsupported with NativeAOT, vote on issue #5303 if this is important to you.")]
+    public NpgsqlDataSourceBuilder MapComposite([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
+    {
+        _internalBuilder.MapComposite(clrType, pgName, nameTranslator);
+        return this;
+    }
 
     /// <inheritdoc />
-    [RequiresUnreferencedCode("Composite type mapping currently isn't trimming-safe.")]
-    public bool UnmapComposite(Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
-    {
-        if (pgName != null && pgName.Trim() == "")
-            throw new ArgumentException("pgName can't be empty", nameof(pgName));
-
-        nameTranslator ??= DefaultNameTranslator;
-        pgName ??= GetPgName(clrType, nameTranslator);
-
-        return _userTypeMappings.Remove(pgName);
-    }
-
-    void INpgsqlTypeMapper.Reset()
-        => ResetTypeMappings();
-
-    void ResetTypeMappings()
-    {
-        var globalMapper = GlobalTypeMapper.Instance;
-        globalMapper.Lock.EnterReadLock();
-        try
-        {
-            _resolverFactories.Clear();
-            foreach (var resolverFactory in globalMapper.ResolverFactories)
-                _resolverFactories.Add(resolverFactory);
-
-            _userTypeMappings.Clear();
-            foreach (var kv in globalMapper.UserTypeMappings)
-                _userTypeMappings[kv.Key] = kv.Value;
-        }
-        finally
-        {
-            globalMapper.Lock.ExitReadLock();
-        }
-    }
-
-    static string GetPgName(Type clrType, INpgsqlNameTranslator nameTranslator)
-        => clrType.GetCustomAttribute<PgNameAttribute>()?.PgName
-           ?? nameTranslator.TranslateTypeName(clrType.Name);
+    [RequiresDynamicCode("Mapping composite types involves serializing arbitrary types which can require creating new generic types or methods. This is currently unsupported with NativeAOT, vote on issue #5303 if this is important to you.")]
+    public bool UnmapComposite([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type clrType, string? pgName = null, INpgsqlNameTranslator? nameTranslator = null)
+        => _internalBuilder.UnmapComposite(clrType, pgName, nameTranslator);
 
     #endregion Type mapping
 
@@ -324,12 +550,7 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
         Action<NpgsqlConnection>? connectionInitializer,
         Func<NpgsqlConnection, Task>? connectionInitializerAsync)
     {
-        if (connectionInitializer is null != connectionInitializerAsync is null)
-            throw new ArgumentException(NpgsqlStrings.SyncAndAsyncConnectionInitializersRequired);
-
-        _syncConnectionInitializer = connectionInitializer;
-        _asyncConnectionInitializer = connectionInitializerAsync;
-
+        _internalBuilder.UsePhysicalConnectionInitializer(connectionInitializer, connectionInitializerAsync);
         return this;
     }
 
@@ -337,68 +558,68 @@ public class NpgsqlDataSourceBuilder : INpgsqlTypeMapper
     /// Builds and returns an <see cref="NpgsqlDataSource" /> which is ready for use.
     /// </summary>
     public NpgsqlDataSource Build()
-    {
-        var config = PrepareConfiguration();
-
-        if (ConnectionStringBuilder.Host!.Contains(","))
-        {
-            ValidateMultiHost();
-
-            return new NpgsqlMultiHostDataSource(ConnectionStringBuilder, config);
-        }
-
-        return ConnectionStringBuilder.Multiplexing
-            ? new MultiplexingDataSource(ConnectionStringBuilder, config)
-            : ConnectionStringBuilder.Pooling
-                ? new PoolingDataSource(ConnectionStringBuilder, config)
-                : new UnpooledDataSource(ConnectionStringBuilder, config);
-    }
+        => _internalBuilder.Build();
 
     /// <summary>
     /// Builds and returns a <see cref="NpgsqlMultiHostDataSource" /> which is ready for use for load-balancing and failover scenarios.
     /// </summary>
     public NpgsqlMultiHostDataSource BuildMultiHost()
+        => _internalBuilder.BuildMultiHost();
+
+    INpgsqlTypeMapper INpgsqlTypeMapper.ConfigureJsonOptions(JsonSerializerOptions serializerOptions)
+        => ConfigureJsonOptions(serializerOptions);
+
+    [RequiresUnreferencedCode("Json serializer may perform reflection on trimmed types.")]
+    [RequiresDynamicCode(
+        "Serializing arbitrary types to json can require creating new generic types or methods, which requires creating code at runtime. This may not work when AOT compiling.")]
+    INpgsqlTypeMapper INpgsqlTypeMapper.EnableDynamicJson(Type[]? jsonbClrTypes, Type[]? jsonClrTypes)
+        => EnableDynamicJson(jsonbClrTypes, jsonClrTypes);
+
+    [RequiresUnreferencedCode(
+        "The mapping of PostgreSQL records as .NET tuples requires reflection usage which is incompatible with trimming.")]
+    [RequiresDynamicCode(
+        "The mapping of PostgreSQL records as .NET tuples requires dynamic code usage which is incompatible with NativeAOT.")]
+    INpgsqlTypeMapper INpgsqlTypeMapper.EnableRecordsAsTuples()
+        => EnableRecordsAsTuples();
+
+    [RequiresUnreferencedCode(
+        "The use of unmapped enums, ranges or multiranges requires reflection usage which is incompatible with trimming.")]
+    [RequiresDynamicCode(
+        "The use of unmapped enums, ranges or multiranges requires dynamic code usage which is incompatible with NativeAOT.")]
+    INpgsqlTypeMapper INpgsqlTypeMapper.EnableUnmappedTypes()
+        => EnableUnmappedTypes();
+
+    /// <inheritdoc />
+    INpgsqlTypeMapper INpgsqlTypeMapper.MapEnum<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TEnum>(string? pgName, INpgsqlNameTranslator? nameTranslator)
     {
-        var config = PrepareConfiguration();
-
-        ValidateMultiHost();
-
-        return new(ConnectionStringBuilder, config);
+        _internalBuilder.MapEnum<TEnum>(pgName, nameTranslator);
+        return this;
     }
 
-    NpgsqlDataSourceConfiguration PrepareConfiguration()
+    /// <inheritdoc />
+    [RequiresDynamicCode("Calling MapEnum with a Type can require creating new generic types or methods. This may not work when AOT compiling.")]
+    INpgsqlTypeMapper INpgsqlTypeMapper.MapEnum([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+        Type clrType, string? pgName, INpgsqlNameTranslator? nameTranslator)
     {
-        ConnectionStringBuilder.PostProcessAndValidate();
-
-        if (_periodicPasswordProvider is not null &&
-            (ConnectionStringBuilder.Password is not null || ConnectionStringBuilder.Passfile is not null))
-        {
-            throw new NotSupportedException(NpgsqlStrings.CannotSetBothPasswordProviderAndPassword);
-        }
-
-        return new(
-            _loggerFactory is null
-                ? NpgsqlLoggingConfiguration.NullConfiguration
-                : new NpgsqlLoggingConfiguration(_loggerFactory, _sensitiveDataLoggingEnabled),
-            _userCertificateValidationCallback,
-            _clientCertificatesCallback,
-            _periodicPasswordProvider,
-            _periodicPasswordSuccessRefreshInterval,
-            _periodicPasswordFailureRefreshInterval,
-            _resolverFactories,
-            _userTypeMappings,
-            DefaultNameTranslator,
-            _syncConnectionInitializer,
-            _asyncConnectionInitializer);
+        _internalBuilder.MapEnum(clrType, pgName, nameTranslator);
+        return this;
     }
 
-    void ValidateMultiHost()
+    /// <inheritdoc />
+    [RequiresDynamicCode("Mapping composite types involves serializing arbitrary types which can require creating new generic types or methods. This is currently unsupported with NativeAOT, vote on issue #5303 if this is important to you.")]
+    INpgsqlTypeMapper INpgsqlTypeMapper.MapComposite<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)] T>(
+        string? pgName, INpgsqlNameTranslator? nameTranslator)
     {
-        if (ConnectionStringBuilder.TargetSessionAttributes is not null)
-            throw new InvalidOperationException(NpgsqlStrings.CannotSpecifyTargetSessionAttributes);
-        if (ConnectionStringBuilder.Multiplexing)
-            throw new NotSupportedException("Multiplexing is not supported with multiple hosts");
-        if (ConnectionStringBuilder.ReplicationMode != ReplicationMode.Off)
-            throw new NotSupportedException("Replication is not supported with multiple hosts");
+        _internalBuilder.MapComposite(typeof(T), pgName, nameTranslator);
+        return this;
+    }
+
+    /// <inheritdoc />
+    [RequiresDynamicCode("Mapping composite types involves serializing arbitrary types which can require creating new generic types or methods. This is currently unsupported with NativeAOT, vote on issue #5303 if this is important to you.")]
+    INpgsqlTypeMapper INpgsqlTypeMapper.MapComposite([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type clrType, string? pgName, INpgsqlNameTranslator? nameTranslator)
+    {
+        _internalBuilder.MapComposite(clrType, pgName, nameTranslator);
+        return this;
     }
 }

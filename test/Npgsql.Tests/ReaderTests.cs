@@ -10,10 +10,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Npgsql.BackendMessages;
 using Npgsql.Internal;
-using Npgsql.Internal.TypeHandling;
+using Npgsql.Internal.Postgres;
 using Npgsql.PostgresTypes;
 using Npgsql.Tests.Support;
-using Npgsql.TypeMapping;
 using Npgsql.Util;
 using NpgsqlTypes;
 using NUnit.Framework;
@@ -27,6 +26,24 @@ namespace Npgsql.Tests;
 [TestFixture(MultiplexingMode.Multiplexing, CommandBehavior.SequentialAccess)]
 public class ReaderTests : MultiplexingTestBase
 {
+    static uint Int4Oid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Int4).Value;
+    static uint ByteaOid => PostgresMinimalDatabaseInfo.DefaultTypeCatalog.GetOid(DataTypeNames.Bytea).Value;
+
+    [Test]
+    public async Task Resumable_non_consumed_to_non_resumable()
+    {
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = new NpgsqlCommand( "SELECT 'aaaaaaaa', 1", conn);
+        await using var reader = await cmd.ExecuteReaderAsync(Behavior);
+        await reader.ReadAsync();
+
+        await reader.IsDBNullAsync(0); // resumable, no consumption
+        _ = reader.IsDBNull(0); // resumable, no consumption
+        await using var stream = await reader.GetStreamAsync(0); // non-resumable
+        if (IsSequential)
+            Assert.That(() => reader.GetString(0), Throws.Exception.TypeOf<InvalidOperationException>());
+    }
+
     [Test]
     public async Task Seek_columns()
     {
@@ -365,11 +382,8 @@ INSERT INTO {table} (name) VALUES ('Text with '' single quote');");
     [Test]
     public async Task GetDataTypeName_enum()
     {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            MaxPoolSize = 1
-        };
-        await using var conn = await OpenConnectionAsync(csb);
+        await using var dataSource = CreateDataSource(csb => csb.MaxPoolSize = 1);
+        await using var conn = await dataSource.OpenConnectionAsync();
         var typeName = await GetTempTypeName(conn);
         await conn.ExecuteNonQueryAsync($"CREATE TYPE {typeName} AS ENUM ('one')");
         await Task.Yield(); // TODO: fix multiplexing deadlock bug
@@ -383,11 +397,8 @@ INSERT INTO {table} (name) VALUES ('Text with '' single quote');");
     [Test]
     public async Task GetDataTypeName_domain()
     {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
-        {
-            MaxPoolSize = 1
-        };
-        await using var conn = await OpenConnectionAsync(csb);
+        await using var dataSource = CreateDataSource(csb => csb.MaxPoolSize = 1);
+        await using var conn = await dataSource.OpenConnectionAsync();
         var typeName = await GetTempTypeName(conn);
         await conn.ExecuteNonQueryAsync($"CREATE DOMAIN {typeName} AS VARCHAR(10)");
         await Task.Yield(); // TODO: fix multiplexing deadlock bug
@@ -464,7 +475,7 @@ INSERT INTO {table} (name) VALUES ('Text with '' single quote');");
             dr.Read();
             var values = new object[4];
             Assert.That(dr.GetValues(values), Is.EqualTo(3));
-            Assert.That(values, Is.EqualTo(new object?[] { "hello", 1, new DateTime(2014, 1, 1), null }));
+            Assert.That(values, Is.EqualTo(new object?[] { "hello", 1, new DateOnly(2014, 1, 1), null }));
         }
         using (var dr = await command.ExecuteReaderAsync(Behavior))
         {
@@ -530,8 +541,8 @@ INSERT INTO {table} (name) VALUES ('Text with '' single quote');");
         var startReaderClosedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
         var continueReaderClosedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using var _ = CreateTempPool(ConnectionString, out var connectionString);
-        await using var conn1 = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource();
+        await using var conn1 = await dataSource.OpenConnectionAsync();
         var connID = conn1.Connector!.Id;
         var readerCloseTask = Task.Run(async () =>
         {
@@ -546,7 +557,7 @@ INSERT INTO {table} (name) VALUES ('Text with '' single quote');");
         });
 
         await startReaderClosedTcs.Task;
-        await using var conn2 = await OpenConnectionAsync(connectionString);
+        await using var conn2 = await dataSource.OpenConnectionAsync();
         Assert.That(conn2.Connector!.Id, Is.EqualTo(connID));
         using var cmd = conn2.CreateCommand();
         cmd.CommandText = "SELECT 1";
@@ -851,7 +862,7 @@ LANGUAGE 'plpgsql'");
         command.CommandText = $"INSERT INTO {table} (name) VALUES ('foo'); SELECT * FROM {table}";
         if (prepare == PrepareOrNot.Prepared)
             command.Prepare();
-        using (var reader = await command.ExecuteReaderAsync())
+        using (var reader = await command.ExecuteReaderAsync(Behavior))
         {
             Assert.That(reader.HasRows, Is.True);
             reader.Read();
@@ -881,6 +892,95 @@ LANGUAGE 'plpgsql'");
         Assert.IsTrue(dr.Read());
         Assert.IsTrue(dr.HasRows);
         var ts = dr.GetTimeSpan(0);
+    }
+
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5439")]
+    public async Task SequentialBufferedSeek()
+    {
+        await using var conn = await OpenConnectionAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """select v.i, jsonb_build_object(), current_timestamp + make_interval(0, 0, 0, 0, 0, 0, v.i), null::jsonb, '{"value": 42}'::jsonb from generate_series(1, 1000) as v(i)""";
+        var rdr = await cmd.ExecuteReaderAsync(Behavior);
+        while (await rdr.ReadAsync()) {
+            var v1 = rdr[0];
+            var v2 = rdr[1];
+            //_ = rdr[2]; // uncomment line for successful execution
+            var v3 = rdr[3];
+            var v4 = rdr[4];
+        }
+    }
+
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5430")]
+    public async Task SequentialBufferedSeekLong()
+    {
+        await using var conn = await OpenConnectionAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """select v.i, repeat('1', 10), repeat('2', 10), repeat('3', 10), repeat('4', 10), 1, 2 from generate_series(1, 1000) as v(i)""";
+        var rdr = await cmd.ExecuteReaderAsync(Behavior);
+        while (await rdr.ReadAsync())
+        {
+            _ = rdr[0];
+            _ = rdr[1];
+            //_ = rdr[2];
+            //_ = rdr[3];
+            //_ = rdr[4];
+            //_ = rdr[5]; // uncomment lines for successful execution
+            _ = rdr[6];
+        }
+    }
+
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5430")]
+    public async Task SequentialBufferedSeekReread()
+    {
+        await using var conn = await OpenConnectionAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """select v.i, repeat('1', 10), repeat('2', 10), repeat('3', 10), repeat('4', 10), 1, NULL from generate_series(1, 1000) as v(i)""";
+        var rdr = await cmd.ExecuteReaderAsync(Behavior);
+        while (await rdr.ReadAsync())
+        {
+            _ = rdr[0];
+            _ = rdr[1];
+            //_ = rdr[2];
+            //_ = rdr[3];
+            //_ = rdr[4];
+            //_ = rdr[5]; // uncomment lines for successful execution
+            _ = rdr.IsDBNull(6);
+            _ = rdr[6];
+            Assert.True(rdr.IsDBNull(6));
+        }
+    }
+
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5484")]
+    public async Task GetFieldValueAsync_AsyncRead()
+    {
+        if (!IsSequential)
+            return;
+
+        await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
+
+        var expected = new byte[10000];
+        expected.AsSpan().Fill(1);
+
+        var pgMock = await postmasterMock.WaitForServerConnection();
+        await pgMock
+            .WriteParseComplete()
+            .WriteBindComplete()
+            .WriteRowDescription(new FieldDescription(ByteaOid))
+            .WriteDataRowWithFlush(expected);
+
+        using var cmd = new NpgsqlCommand("irrelevant", conn);
+        var reader = await cmd.ExecuteReaderAsync(Behavior);
+        while (await reader.ReadAsync())
+        {
+            var task = reader.GetFieldValueAsync<object>(0);
+            await pgMock
+                .WriteCommandComplete()
+                .WriteReadyForQuery()
+                .FlushAsync();
+            Assert.AreEqual(expected, await task);
+        }
     }
 
     [Test]
@@ -927,14 +1027,14 @@ LANGUAGE plpgsql VOLATILE";
         using var conn = await OpenConnectionAsync();
         // Chunking type handler
         using (var cmd = new NpgsqlCommand("SELECT 'foo'", conn))
-        using (var reader = await cmd.ExecuteReaderAsync())
+        using (var reader = await cmd.ExecuteReaderAsync(Behavior))
         {
             reader.Read();
             Assert.That(() => reader.GetInt32(0), Throws.Exception.TypeOf<InvalidCastException>());
         }
         // Simple type handler
         using (var cmd = new NpgsqlCommand("SELECT 1", conn))
-        using (var reader = await cmd.ExecuteReaderAsync())
+        using (var reader = await cmd.ExecuteReaderAsync(Behavior))
         {
             reader.Read();
             Assert.That(() => reader.GetDateTime(0), Throws.Exception.TypeOf<InvalidCastException>());
@@ -947,7 +1047,7 @@ LANGUAGE plpgsql VOLATILE";
     {
         using var conn = await OpenConnectionAsync();
         using var cmd = new NpgsqlCommand($"SELECT generate_series(1, {conn.Settings.ReadBufferSize})", conn);
-        using var reader = await cmd.ExecuteReaderAsync();
+        using var reader = await cmd.ExecuteReaderAsync(Behavior);
         for (var i = 1; i <= conn.Settings.ReadBufferSize; i++)
         {
             Assert.That(reader.Read(), Is.True);
@@ -959,6 +1059,10 @@ LANGUAGE plpgsql VOLATILE";
     [Test]
     public async Task Nullable_scalar()
     {
+        // We read the same column multiple times
+        if (IsSequential)
+            return;
+
         using var conn = await OpenConnectionAsync();
         using var cmd = new NpgsqlCommand("SELECT @p1, @p2", conn);
         var p1 = new NpgsqlParameter { ParameterName = "p1", Value = DBNull.Value, NpgsqlDbType = NpgsqlDbType.Smallint };
@@ -967,7 +1071,7 @@ LANGUAGE plpgsql VOLATILE";
         Assert.That(p2.DbType, Is.EqualTo(DbType.Int16));
         cmd.Parameters.Add(p1);
         cmd.Parameters.Add(p2);
-        using var reader = await cmd.ExecuteReaderAsync();
+        using var reader = await cmd.ExecuteReaderAsync(Behavior);
         reader.Read();
 
         for (var i = 0; i < cmd.Parameters.Count; i++)
@@ -1107,14 +1211,12 @@ LANGUAGE plpgsql VOLATILE";
     [Test]
     public async Task Unbound_reader_reuse()
     {
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
+        await using var dataSource = CreateDataSource(csb =>
         {
-            MinPoolSize = 1,
-            MaxPoolSize = 1,
-        };
-        using var _ = CreateTempPool(csb.ToString(), out var connectionString);
-
-        await using var conn1 = await OpenConnectionAsync(connectionString);
+            csb.MinPoolSize = 1;
+            csb.MaxPoolSize = 1;
+        });
+        await using var conn1 = await dataSource.OpenConnectionAsync();
         using var cmd1 = conn1.CreateCommand();
         cmd1.CommandText = "SELECT 1";
         var reader1 = await cmd1.ExecuteReaderAsync(Behavior);
@@ -1127,7 +1229,7 @@ LANGUAGE plpgsql VOLATILE";
             await conn1.CloseAsync();
         }
 
-        await using var conn2 = await OpenConnectionAsync(connectionString);
+        await using var conn2 = await dataSource.OpenConnectionAsync();
         using var cmd2 = conn2.CreateCommand();
         cmd2.CommandText = "SELECT 2";
         var reader2 = await cmd2.ExecuteReaderAsync(Behavior);
@@ -1141,7 +1243,7 @@ LANGUAGE plpgsql VOLATILE";
             await conn2.CloseAsync();
         }
 
-        await using var conn3 = await OpenConnectionAsync(connectionString);
+        await using var conn3 = await dataSource.OpenConnectionAsync();
         using var cmd3 = conn3.CreateCommand();
         cmd3.CommandText = "SELECT 3";
         var reader3 = await cmd3.ExecuteReaderAsync(Behavior);
@@ -1163,14 +1265,14 @@ LANGUAGE plpgsql VOLATILE";
             return;
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         var pgMock = await postmasterMock.WaitForServerConnection();
         pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4), new FieldDescription(PostgresTypeOIDs.Bytea));
+            .WriteRowDescription(new FieldDescription(Int4Oid), new FieldDescription(ByteaOid));
 
         var intValue = new byte[] { 0, 0, 0, 1 };
         var byteValue = new byte[] { 1, 2, 3, 4 };
@@ -1210,20 +1312,26 @@ LANGUAGE plpgsql VOLATILE";
     public async Task Dispose_does_not_swallow_exceptions([Values(true, false)] bool async)
     {
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await using var tx = IsMultiplexing ? await conn.BeginTransactionAsync() : null;
         var pgMock = await postmasterMock.WaitForServerConnection();
+
+        if (IsMultiplexing)
+            pgMock
+                .WriteEmptyQueryResponse()
+                .WriteReadyForQuery(TransactionStatus.InTransactionBlock);
 
         // Write responses for the query, but break the connection before sending CommandComplete/ReadyForQuery
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
             .WriteDataRow(BitConverter.GetBytes(BinaryPrimitives.ReverseEndianness(1)))
             .FlushAsync();
 
         using var cmd = new NpgsqlCommand("SELECT 1", conn);
-        using var reader = await cmd.ExecuteReaderAsync();
+        using var reader = await cmd.ExecuteReaderAsync(Behavior);
         await reader.ReadAsync();
 
         pgMock.Close();
@@ -1232,6 +1340,24 @@ LANGUAGE plpgsql VOLATILE";
             Assert.Throws<NpgsqlException>(() => reader.Dispose());
         else
             Assert.ThrowsAsync<NpgsqlException>(async () => await reader.DisposeAsync());
+    }
+
+    [Test]
+    public async Task Read_string_as_char()
+    {
+        await using var conn = await OpenConnectionAsync();
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT 'abcdefgh', 'ijklmnop'";
+
+        await using var reader = await cmd.ExecuteReaderAsync(Behavior);
+        Assert.IsTrue(await reader.ReadAsync());
+        Assert.That(reader.GetChar(0), Is.EqualTo('a'));
+        if (Behavior == CommandBehavior.SequentialAccess)
+            Assert.Throws<InvalidOperationException>(() => reader.GetChar(0));
+        else
+            Assert.That(reader.GetChar(0), Is.EqualTo('a'));
+        Assert.That(reader.GetChar(1), Is.EqualTo('i'));
     }
 
     #region GetBytes / GetStream
@@ -1243,7 +1369,7 @@ LANGUAGE plpgsql VOLATILE";
         var table = await CreateTempTable(conn, "bytes BYTEA");
 
         // TODO: This is too small to actually test any interesting sequential behavior
-        byte[] expected = { 1, 2, 3, 4, 5 };
+        byte[] expected = [1, 2, 3, 4, 5];
         var actual = new byte[expected.Length];
         await conn.ExecuteNonQueryAsync($"INSERT INTO {table} (bytes) VALUES ({EncodeByteaHex(expected)})");
 
@@ -1268,18 +1394,13 @@ LANGUAGE plpgsql VOLATILE";
         Assert.That(actual, Is.EqualTo(expected));
         Assert.That(reader.GetBytes(0, 0, null, 0, 0), Is.EqualTo(expected.Length), "Bad column length");
 
-        Assert.That(() => reader.GetBytes(1, 0, null, 0, 0), Throws.Exception.TypeOf<InvalidCastException>(),
-            "GetBytes on non-bytea");
-        Assert.That(() => reader.GetBytes(1, 0, actual, 0, 1),
-            Throws.Exception.TypeOf<InvalidCastException>(),
-            "GetBytes on non-bytea");
         Assert.That(reader.GetString(1), Is.EqualTo("foo"));
         reader.GetBytes(2, 0, actual, 0, 2);
         // Jump to another column from the middle of the column
         reader.GetBytes(4, 0, actual, 0, 2);
         Assert.That(reader.GetBytes(4, expected.Length - 1, actual, 0, 2), Is.EqualTo(1),
             "Length greater than data length");
-        Assert.That(actual[0], Is.EqualTo(expected[expected.Length - 1]), "Length greater than data length");
+        Assert.That(actual[0], Is.EqualTo(expected[^1]), "Length greater than data length");
         Assert.That(() => reader.GetBytes(4, 0, actual, 0, actual.Length + 1),
             Throws.Exception.TypeOf<IndexOutOfRangeException>(), "Length great than output buffer length");
         // Close in the middle of a column
@@ -1453,6 +1574,50 @@ LANGUAGE plpgsql VOLATILE";
             Assert.That(() => reader.GetStream(0), Throws.Exception.TypeOf<InvalidOperationException>());
     }
 
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5223")]
+    public async Task GetStream_seek()
+    {
+        // Sequential doesn't allow to seek
+        if (IsSequential)
+            return;
+
+        await using var conn = await OpenConnectionAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT 'abcdefgh'";
+        await using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+
+        var buffer = new byte[4];
+
+        await using var stream = reader.GetStream(0);
+        Assert.IsTrue(stream.CanSeek);
+
+        var seekPosition = stream.Seek(-1, SeekOrigin.End);
+        Assert.That(seekPosition, Is.EqualTo(stream.Length - 1));
+        var read = stream.Read(buffer);
+        Assert.That(read, Is.EqualTo(1));
+        Assert.That(Encoding.ASCII.GetString(buffer, 0, 1), Is.EqualTo("h"));
+        read = stream.Read(buffer);
+        Assert.That(read, Is.EqualTo(0));
+
+        seekPosition = stream.Seek(2, SeekOrigin.Begin);
+        Assert.That(seekPosition, Is.EqualTo(2));
+        read = stream.Read(buffer);
+        Assert.That(read, Is.EqualTo(buffer.Length));
+        Assert.That(Encoding.ASCII.GetString(buffer), Is.EqualTo("cdef"));
+
+        seekPosition = stream.Seek(-3, SeekOrigin.Current);
+        Assert.That(seekPosition, Is.EqualTo(3));
+        read = stream.Read(buffer);
+        Assert.That(read, Is.EqualTo(buffer.Length));
+        Assert.That(Encoding.ASCII.GetString(buffer), Is.EqualTo("defg"));
+
+        stream.Position = 1;
+        read = stream.Read(buffer);
+        Assert.That(read, Is.EqualTo(buffer.Length));
+        Assert.That(Encoding.ASCII.GetString(buffer), Is.EqualTo("bcde"));
+    }
+
     #endregion GetBytes / GetStream
 
     #region GetChars / GetTextReader
@@ -1474,7 +1639,8 @@ LANGUAGE plpgsql VOLATILE";
         Assert.That(reader.GetChars(0, 0, actual, 0, 2), Is.EqualTo(2));
         Assert.That(actual[0], Is.EqualTo(expected[0]));
         Assert.That(actual[1], Is.EqualTo(expected[1]));
-        Assert.That(reader.GetChars(0, 0, null, 0, 0), Is.EqualTo(expected.Length), "Bad column length");
+        if (!IsSequential)
+            Assert.That(reader.GetChars(0, 0, null, 0, 0), Is.EqualTo(expected.Length), "Bad column length");
         // Note: Unlike with bytea, finding out the length of the column consumes it (variable-width
         // UTF8 encoding)
         Assert.That(reader.GetChars(2, 0, actual, 0, 2), Is.EqualTo(2));
@@ -1496,10 +1662,34 @@ LANGUAGE plpgsql VOLATILE";
         // Jump to another column from the middle of the column
         reader.GetChars(5, 0, actual, 0, 2);
         Assert.That(reader.GetChars(5, expected.Length - 1, actual, 0, 2), Is.EqualTo(1), "Length greater than data length");
-        Assert.That(actual[0], Is.EqualTo(expected[expected.Length - 1]), "Length greater than data length");
+        Assert.That(actual[0], Is.EqualTo(expected[^1]), "Length greater than data length");
         Assert.That(() => reader.GetChars(5, 0, actual, 0, actual.Length + 1), Throws.Exception.TypeOf<IndexOutOfRangeException>(), "Length great than output buffer length");
         // Close in the middle of a column
         reader.GetChars(6, 0, actual, 0, 2);
+    }
+
+    [Test]
+    public async Task GetChars_AdvanceConsumed()
+    {
+        const string value = "01234567";
+
+        using var conn = await OpenConnectionAsync();
+        using var cmd = new NpgsqlCommand($"SELECT '{value}'", conn);
+        using var reader = await cmd.ExecuteReaderAsync(Behavior);
+        reader.Read();
+
+        var buffer = new char[2];
+        // Don't start at the beginning of the column.
+        reader.GetChars(0, 2, buffer, 0, 2);
+        reader.GetChars(0, 4, buffer, 0, 2);
+        reader.GetChars(0, 6, buffer, 0, 2);
+
+        // Ask for data past the start and the previous point, exercising restart logic.
+        if (!IsSequential)
+        {
+            reader.GetChars(0, 4, buffer, 0, 2);
+            reader.GetChars(0, 6, buffer, 0, 2);
+        }
     }
 
     [Test]
@@ -1552,7 +1742,7 @@ LANGUAGE plpgsql VOLATILE";
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT ''";
 
-        await using var reader = await cmd.ExecuteReaderAsync();
+        await using var reader = await cmd.ExecuteReaderAsync(Behavior);
         Assert.IsTrue(await reader.ReadAsync());
 
         using var textReader = reader.GetTextReader(0);
@@ -1664,12 +1854,41 @@ LANGUAGE plpgsql VOLATILE";
 
     #endregion GetChars / GetTextReader
 
+    [Test, IssueLink("https://github.com/npgsql/npgsql/issues/5450")]
+    public async Task EndRead_StreamActive([Values]bool async)
+    {
+        if (IsMultiplexing)
+            return;
+
+        const int columnLength = 1;
+
+        await using var conn = await OpenConnectionAsync();
+        var buffer = conn.Connector!.ReadBuffer;
+        buffer.FilledBytes += columnLength;
+        var reader = buffer.PgReader;
+        reader.Init(columnLength, DataFormat.Binary, resumable: false);
+        if (async)
+            await reader.StartReadAsync(Size.Unknown, CancellationToken.None);
+        else
+            reader.StartRead(Size.Unknown);
+
+        await using (var _ = reader.GetStream())
+        {
+            if (async)
+                Assert.DoesNotThrowAsync(async () => await reader.EndReadAsync());
+            else
+                Assert.DoesNotThrow(() => reader.EndRead());
+        }
+
+        reader.Commit();
+    }
+
     [Test, Description("Tests that everything goes well when a type handler generates a NpgsqlSafeReadException")]
     public async Task SafeReadException()
     {
         var dataSourceBuilder = CreateDataSourceBuilder();
         // Temporarily reroute integer to go to a type handler which generates SafeReadExceptions
-        dataSourceBuilder.AddTypeResolverFactory(new ExplodingTypeHandlerResolverFactory(safe: true));
+        dataSourceBuilder.AddTypeInfoResolverFactory(new ExplodingTypeHandlerResolverFactory(safe: true));
         await using var dataSource = dataSourceBuilder.Build();
         await using var connection = await dataSource.OpenConnectionAsync();
 
@@ -1686,14 +1905,14 @@ LANGUAGE plpgsql VOLATILE";
     {
         var dataSourceBuilder = CreateDataSourceBuilder();
         // Temporarily reroute integer to go to a type handler which generates some exception
-        dataSourceBuilder.AddTypeResolverFactory(new ExplodingTypeHandlerResolverFactory(safe: false));
+        dataSourceBuilder.AddTypeInfoResolverFactory(new ExplodingTypeHandlerResolverFactory(safe: false));
         await using var dataSource = dataSourceBuilder.Build();
         await using var connection = await dataSource.OpenConnectionAsync();
 
         await using var cmd = new NpgsqlCommand(@"SELECT 1, 'hello'", connection);
         await using var reader = await cmd.ExecuteReaderAsync(Behavior);
         await reader.ReadAsync();
-        Assert.That(() => reader.GetInt32(0), Throws.Exception.With.Message.EqualTo("Non-safe read exception as requested"));
+        Assert.That(() => reader.GetInt32(0), Throws.Exception.With.Message.EqualTo("Broken"));
         Assert.That(connection.FullState, Is.EqualTo(ConnectionState.Broken));
         Assert.That(connection.State, Is.EqualTo(ConnectionState.Closed));
     }
@@ -1707,20 +1926,20 @@ LANGUAGE plpgsql VOLATILE";
             return; // Multiplexing, cancellation
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, with a single data row (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
             .WriteDataRow(BitConverter.GetBytes(BinaryPrimitives.ReverseEndianness(1)))
             .FlushAsync();
 
         using var cmd = new NpgsqlCommand("SELECT some_int FROM some_table", conn);
-        await using (var reader = await cmd.ExecuteReaderAsync())
+        await using (var reader = await cmd.ExecuteReaderAsync(Behavior))
         {
             // Successfully read the first row
             Assert.True(await reader.ReadAsync());
@@ -1756,20 +1975,20 @@ LANGUAGE plpgsql VOLATILE";
             return; // Multiplexing, cancellation
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, with a single data row (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
             .WriteDataRow(BitConverter.GetBytes(BinaryPrimitives.ReverseEndianness(1)))
             .FlushAsync();
 
         using var cmd = new NpgsqlCommand("SELECT some_int FROM some_table", conn);
-        await using (var reader = await cmd.ExecuteReaderAsync())
+        await using (var reader = await cmd.ExecuteReaderAsync(Behavior))
         {
             // Successfully read the first row
             Assert.True(await reader.ReadAsync());
@@ -1807,21 +2026,21 @@ LANGUAGE plpgsql VOLATILE";
             return; // Multiplexing, cancellation
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, only for the first resultset (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
             .WriteDataRow(BitConverter.GetBytes(BinaryPrimitives.ReverseEndianness(1)))
             .WriteCommandComplete()
             .FlushAsync();
 
         using var cmd = new NpgsqlCommand("SELECT 1; SELECT 2", conn);
-        await using (var reader = await cmd.ExecuteReaderAsync())
+        await using (var reader = await cmd.ExecuteReaderAsync(Behavior))
         {
             // Successfully read the first resultset
             Assert.True(await reader.ReadAsync());
@@ -1859,15 +2078,15 @@ LANGUAGE plpgsql VOLATILE";
             return; // Multiplexing, cancellation
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, with a single data row (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
             .WriteDataRow(BitConverter.GetBytes(BinaryPrimitives.ReverseEndianness(1)))
             .FlushAsync();
 
@@ -1903,15 +2122,15 @@ LANGUAGE plpgsql VOLATILE";
             return; // Multiplexing, cancellation
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, with a single data row (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
             .WriteDataRow(BitConverter.GetBytes(BinaryPrimitives.ReverseEndianness(1)))
             .WriteCommandComplete()
             .FlushAsync();
@@ -1951,15 +2170,15 @@ LANGUAGE plpgsql VOLATILE";
             return;
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, with a single data row (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Bytea))
+            .WriteRowDescription(new FieldDescription(ByteaOid))
             .WriteDataRowWithFlush(new byte[10000]);
 
         using var cmd = new NpgsqlCommand("SELECT some_bytea FROM some_table", conn);
@@ -1989,15 +2208,15 @@ LANGUAGE plpgsql VOLATILE";
             return;
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, with a single data row (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Bytea), new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(ByteaOid), new FieldDescription(Int4Oid))
             .WriteDataRowWithFlush(new byte[10000], new byte[4]);
 
         using var cmd = new NpgsqlCommand("SELECT some_bytea, some_int FROM some_table", conn);
@@ -2023,8 +2242,8 @@ LANGUAGE plpgsql VOLATILE";
         if (!IsMultiplexing)
             return;
 
-        using var _ = CreateTempPool(ConnectionString, out var connString);
-        await using var conn = await OpenConnectionAsync(connString);
+        await using var dataSource = CreateDataSource();
+        await using var conn = await dataSource.OpenConnectionAsync();
         await using var cmd = new NpgsqlCommand("SELECT generate_series(1, 100); SELECT generate_series(1, 100)", conn);
         await using var reader = await cmd.ExecuteReaderAsync(Behavior);
         var cancelledToken = new CancellationToken(canceled: true);
@@ -2048,20 +2267,22 @@ LANGUAGE plpgsql VOLATILE";
         if (!IsSequential)
             return;
 
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString);
-        csb.CommandTimeout = 3;
-        csb.CancellationTimeout = 15000;
+        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
+        {
+            CommandTimeout = 3,
+            CancellationTimeout = 15000
+        };
 
         await using var postmasterMock = PgPostmasterMock.Start(csb.ToString());
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, with a single data row (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Bytea))
+            .WriteRowDescription(new FieldDescription(ByteaOid))
             .WriteDataRowWithFlush(new byte[10000]);
 
         using var cmd = new NpgsqlCommand("SELECT some_bytea FROM some_table", conn);
@@ -2086,20 +2307,22 @@ LANGUAGE plpgsql VOLATILE";
         if (!IsSequential)
             return;
 
-        var csb = new NpgsqlConnectionStringBuilder(ConnectionString);
-        csb.CommandTimeout = 3;
-        csb.CancellationTimeout = 15000;
+        var csb = new NpgsqlConnectionStringBuilder(ConnectionString)
+        {
+            CommandTimeout = 3,
+            CancellationTimeout = 15000
+        };
 
         await using var postmasterMock = PgPostmasterMock.Start(csb.ToString());
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         // Write responses to the query we're about to send, with a single data row (we'll attempt to read two)
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Bytea), new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(ByteaOid), new FieldDescription(Int4Oid))
             .WriteDataRowWithFlush(new byte[10000], new byte[4]);
 
         using var cmd = new NpgsqlCommand("SELECT some_bytea, some_int FROM some_table", conn);
@@ -2122,14 +2345,14 @@ LANGUAGE plpgsql VOLATILE";
             return; // Multiplexing, cancellation
 
         await using var postmasterMock = PgPostmasterMock.Start(ConnectionString);
-        using var _ = CreateTempPool(postmasterMock.ConnectionString, out var connectionString);
-        await using var conn = await OpenConnectionAsync(connectionString);
+        await using var dataSource = CreateDataSource(postmasterMock.ConnectionString);
+        await using var conn = await dataSource.OpenConnectionAsync();
 
         var pgMock = await postmasterMock.WaitForServerConnection();
         await pgMock
             .WriteParseComplete()
             .WriteBindComplete()
-            .WriteRowDescription(new FieldDescription(PostgresTypeOIDs.Int4))
+            .WriteRowDescription(new FieldDescription(Int4Oid))
             .WriteDataRow(new byte[4])
             .FlushAsync();
 
@@ -2168,57 +2391,46 @@ LANGUAGE plpgsql VOLATILE";
 
 #region Mock Type Handlers
 
-class ExplodingTypeHandlerResolverFactory : TypeHandlerResolverFactory
+sealed class ExplodingTypeHandlerResolverFactory(bool safe) : PgTypeInfoResolverFactory
 {
-    readonly bool _safe;
-    public ExplodingTypeHandlerResolverFactory(bool safe) => _safe = safe;
-    public override TypeHandlerResolver Create(NpgsqlConnector connector) => new ExplodingTypeHandlerResolver(_safe);
+    public override IPgTypeInfoResolver CreateResolver() => new Resolver(safe);
+    public override IPgTypeInfoResolver? CreateArrayResolver() => null;
 
-    public override TypeMappingInfo GetMappingByDataTypeName(string dataTypeName) => throw new NotSupportedException();
-    public override string? GetDataTypeNameByClrType(Type clrType) => throw new NotSupportedException();
-    public override string? GetDataTypeNameByValueDependentValue(object value) => throw new NotSupportedException();
-
-    class ExplodingTypeHandlerResolver : TypeHandlerResolver
+    sealed class Resolver(bool safe) : IPgTypeInfoResolver
     {
-        readonly bool _safe;
+        public PgTypeInfo? GetTypeInfo(Type? type, DataTypeName? dataTypeName, PgSerializerOptions options)
+        {
+            if (dataTypeName == DataTypeNames.Int4 && (type == typeof(int) || type is null))
+                return new(options, new ExplodingTypeHandler(safe), DataTypeNames.Int4);
 
-        public ExplodingTypeHandlerResolver(bool safe) => _safe = safe;
-
-        public override NpgsqlTypeHandler? ResolveByDataTypeName(string typeName) =>
-            typeName == "integer" ? new ExplodingTypeHandler(null!, _safe) : null;
-        public override NpgsqlTypeHandler? ResolveByClrType(Type type) => null;
-        public override TypeMappingInfo GetMappingByDataTypeName(string dataTypeName) => throw new NotImplementedException();
+            return null;
+        }
     }
 }
 
-class ExplodingTypeHandler : NpgsqlSimpleTypeHandler<int>
+class ExplodingTypeHandler : PgBufferedConverter<int>
 {
     readonly bool _safe;
 
-    internal ExplodingTypeHandler(PostgresType postgresType, bool safe) : base(postgresType) => _safe = safe;
+    internal ExplodingTypeHandler(bool safe) => _safe = safe;
 
-    public override int Read(NpgsqlReadBuffer buf, int len, FieldDescription? fieldDescription = null)
+    public override Size GetSize(SizeContext context, int value, ref object? writeState)
+        => throw new NotSupportedException();
+
+    public override bool CanConvert(DataFormat format, out BufferRequirements bufferRequirements)
+        => CanConvertBufferedDefault(format, out bufferRequirements);
+
+    protected override void WriteCore(PgWriter writer, int value)
+        => throw new NotSupportedException();
+
+    protected override int ReadCore(PgReader reader)
     {
-        buf.ReadInt32();
+        if (_safe)
+            throw new Exception("Safe read exception as requested");
 
-        throw _safe
-            ? new Exception("Safe read exception as requested")
-            : buf.Connector.Break(new Exception("Non-safe read exception as requested"));
+        reader.BreakConnection();
+        return default;
     }
-
-    public override int ValidateAndGetLength(int value, NpgsqlParameter? parameter) => throw new NotSupportedException();
-    public override int ValidateObjectAndGetLength(object? value, ref NpgsqlLengthCache? lengthCache, NpgsqlParameter? parameter)
-        => throw new NotSupportedException();
-    public override void Write(int value, NpgsqlWriteBuffer buf, NpgsqlParameter? parameter) => throw new NotSupportedException();
-
-    public override Task WriteObjectWithLength(
-        object? value,
-        NpgsqlWriteBuffer buf,
-        NpgsqlLengthCache? lengthCache,
-        NpgsqlParameter? parameter,
-        bool async,
-        CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
 }
 
 #endregion

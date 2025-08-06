@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 
-#pragma warning disable CA1040, CA1034
 // ReSharper disable once CheckNamespace
 namespace NpgsqlTypes;
 
@@ -22,7 +21,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
             return;
         }
 
-        _lexemes = new List<Lexeme>(lexemes);
+        _lexemes = [..lexemes];
 
         if (_lexemes.Count == 0)
             return;
@@ -74,10 +73,10 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
+    [Obsolete("Client-side parsing of NpgsqlTsVector is unreliable and cannot fully duplicate the PostgreSQL logic. Use PG functions instead (e.g. to_tsvector)")]
     public static NpgsqlTsVector Parse(string value)
     {
-        if (value == null)
-            throw new ArgumentNullException(nameof(value));
+        ArgumentNullException.ThrowIfNull(value);
 
         var lexemes = new List<Lexeme>();
         var pos = 0;
@@ -167,7 +166,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
         goto WaitWord;
 
         StartPosInfo:
-        wordEntryPositions = new List<Lexeme.WordEntryPos>();
+        wordEntryPositions = [];
 
         InPosInfo:
         var digitPos = pos;
@@ -189,7 +188,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
             if (value[pos] >= 'B' && value[pos] <= 'D' || value[pos] >= 'b' && value[pos] <= 'd')
             {
                 var weight = value[pos];
-                if (weight >= 'b' && weight <= 'd')
+                if (weight is >= 'b' and <= 'd')
                     weight = (char)(weight - ('b' - 'B'));
                 wordEntryPositions.Add(new Lexeme.WordEntryPos(wordPos, Lexeme.Weight.D + ('D' - weight)));
                 pos++;
@@ -321,7 +320,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
         {
             Text = text;
             if (wordEntryPositions != null)
-                WordEntryPositions = noCopy ? wordEntryPositions : new List<WordEntryPos>(wordEntryPositions);
+                WordEntryPositions = noCopy ? wordEntryPositions : [..wordEntryPositions];
             else
                 WordEntryPositions = null;
         }
@@ -343,7 +342,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
                 return list;
 
             // Don't change the original list, as the user might inspect it later if he holds a reference to the lexeme's list
-            list = new List<WordEntryPos>(list);
+            list = [..list];
 
             list.Sort((x, y) => x.Pos.CompareTo(y.Pos));
 
@@ -414,9 +413,7 @@ public sealed class NpgsqlTsVector : IEnumerable<NpgsqlTsVector.Lexeme>, IEquata
             internal short Value { get; }
 
             internal WordEntryPos(short value)
-            {
-                Value = value;
-            }
+                => Value = value;
 
             /// <summary>
             /// Creates a WordEntryPos with a given position and weight.

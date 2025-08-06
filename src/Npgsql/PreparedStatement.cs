@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text;
 using Npgsql.BackendMessages;
+using Npgsql.Internal.Postgres;
 
 namespace Npgsql;
 
@@ -16,7 +18,7 @@ sealed class PreparedStatement
 
     internal string Sql { get; }
 
-    internal string? Name;
+    internal byte[]? Name;
 
     internal RowDescriptionMessage? Description;
 
@@ -24,7 +26,8 @@ sealed class PreparedStatement
 
     internal PreparedState State { get; set; }
 
-    internal bool IsPrepared => State == PreparedState.Prepared;
+    // Invalidated statement is still prepared and allocated on PG's side
+    internal bool IsPrepared => State is PreparedState.Prepared or PreparedState.Invalidated;
 
     /// <summary>
     /// If true, the user explicitly requested this statement be prepared. It does not get closed as part of
@@ -40,15 +43,15 @@ sealed class PreparedStatement
 
     internal int AutoPreparedSlotIndex { get; set; }
 
-    internal DateTime LastUsed { get; set; }
+    internal long LastUsed { get; set; }
+
+    internal void RefreshLastUsed() => LastUsed = Stopwatch.GetTimestamp();
 
     /// <summary>
     /// Contains the handler types for a prepared statement's parameters, for overloaded cases (same SQL, different param types)
     /// Only populated after the statement has been prepared (i.e. null for candidates).
     /// </summary>
-    internal Type[]? HandlerParamTypes { get; private set; }
-
-    static readonly Type[] EmptyParamTypes = Type.EmptyTypes;
+    PgTypeId[]? ConverterParamTypes { get; set; }
 
     internal static PreparedStatement CreateExplicit(
         PreparedStatementManager manager,
@@ -59,7 +62,7 @@ sealed class PreparedStatement
     {
         var pStatement = new PreparedStatement(manager, sql, true)
         {
-            Name = name,
+            Name = Encoding.ASCII.GetBytes(name),
             StatementBeingReplaced = statementBeingReplaced
         };
         pStatement.SetParamTypes(parameters);
@@ -81,22 +84,23 @@ sealed class PreparedStatement
     {
         if (parameters.Count == 0)
         {
-            HandlerParamTypes = EmptyParamTypes;
+            ConverterParamTypes = [];
             return;
         }
 
-        HandlerParamTypes = new Type[parameters.Count];
+        ConverterParamTypes = new PgTypeId[parameters.Count];
         for (var i = 0; i < parameters.Count; i++)
-            HandlerParamTypes[i] = parameters[i].Handler!.GetType();
+            ConverterParamTypes[i] = parameters[i].PgTypeId;
     }
 
     internal bool DoParametersMatch(List<NpgsqlParameter> parameters)
     {
-        if (HandlerParamTypes!.Length != parameters.Count)
+        var paramTypes = ConverterParamTypes!;
+        if (paramTypes.Length != parameters.Count)
             return false;
 
-        for (var i = 0; i < HandlerParamTypes.Length; i++)
-            if (HandlerParamTypes[i] != parameters[i].Handler!.GetType())
+        for (var i = 0; i < paramTypes.Length; i++)
+            if (paramTypes[i] != parameters[i].PgTypeId)
                 return false;
 
         return true;

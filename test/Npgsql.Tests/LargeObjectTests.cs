@@ -4,6 +4,8 @@ using NUnit.Framework;
 
 namespace Npgsql.Tests;
 
+#pragma warning disable CS0618 // Large object support is obsolete
+
 public class LargeObjectTests : TestBase
 {
     [Test]
@@ -19,7 +21,7 @@ public class LargeObjectTests : TestBase
             stream.Write(buf, 0, buf.Length);
             stream.Seek(0, System.IO.SeekOrigin.Begin);
             var buf2 = new byte[buf.Length];
-            stream.Read(buf2, 0, buf2.Length);
+            stream.ReadExactly(buf2, 0, buf2.Length);
             Assert.That(buf.SequenceEqual(buf2));
 
             Assert.AreEqual(5, stream.Position);

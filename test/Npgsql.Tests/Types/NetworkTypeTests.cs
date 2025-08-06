@@ -13,11 +13,21 @@ namespace Npgsql.Tests.Types;
 /// <remarks>
 /// https://www.postgresql.org/docs/current/static/datatype-net-types.html
 /// </remarks>
-class NetworkTypeTests : MultiplexingTestBase
+class NetworkTypeTests(MultiplexingMode multiplexingMode) : MultiplexingTestBase(multiplexingMode)
 {
     [Test]
     public Task Inet_v4_as_IPAddress()
-        => AssertType(IPAddress.Parse("192.168.1.1"), "192.168.1.1/32", "inet", NpgsqlDbType.Inet);
+        => AssertType(IPAddress.Parse("192.168.1.1"), "192.168.1.1/32", "inet", NpgsqlDbType.Inet, skipArrayCheck: true);
+
+    [Test]
+    public Task Inet_v4_array_as_IPAddress_array()
+        => AssertType(
+            new[]
+            {
+                IPAddress.Parse("192.168.1.1"),
+                IPAddress.Parse("192.168.1.2")
+            },
+            "{192.168.1.1,192.168.1.2}", "inet[]", NpgsqlDbType.Inet | NpgsqlDbType.Array);
 
     [Test]
     public Task Inet_v6_as_IPAddress()
@@ -25,35 +35,42 @@ class NetworkTypeTests : MultiplexingTestBase
             IPAddress.Parse("2001:1db8:85a3:1142:1000:8a2e:1370:7334"),
             "2001:1db8:85a3:1142:1000:8a2e:1370:7334/128",
             "inet",
-            NpgsqlDbType.Inet);
-
-    [Test]
-    public Task Inet_v4_as_tuple()
-        => AssertType((IPAddress.Parse("192.168.1.1"), 24), "192.168.1.1/24", "inet", NpgsqlDbType.Inet, isDefaultForReading: false);
-
-    [Test]
-    public Task Inet_v6_as_tuple()
-        => AssertType(
-            (IPAddress.Parse("2001:1db8:85a3:1142:1000:8a2e:1370:7334"), 24),
-            "2001:1db8:85a3:1142:1000:8a2e:1370:7334/24",
-            "inet",
             NpgsqlDbType.Inet,
-            isDefaultForReading: false);
+            skipArrayCheck: true);
+
+    [Test]
+    public Task Inet_v6_array_as_IPAddress_array()
+        => AssertType(
+            new[]
+            {
+                IPAddress.Parse("2001:1db8:85a3:1142:1000:8a2e:1370:7334"),
+                IPAddress.Parse("2001:1db8:85a3:1142:1000:8a2e:1370:7335")
+            },
+            "{2001:1db8:85a3:1142:1000:8a2e:1370:7334,2001:1db8:85a3:1142:1000:8a2e:1370:7335}", "inet[]", NpgsqlDbType.Inet | NpgsqlDbType.Array);
 
     [Test, IssueLink("https://github.com/dotnet/corefx/issues/33373")]
     public Task IPAddress_Any()
-        => AssertTypeWrite(IPAddress.Any, "0.0.0.0/32", "inet", NpgsqlDbType.Inet);
+        => AssertTypeWrite(IPAddress.Any, "0.0.0.0/32", "inet", NpgsqlDbType.Inet, skipArrayCheck: true);
 
     [Test]
-    public Task Cidr()
+    public Task IPNetwork_as_cidr()
         => AssertType(
-            (Address: IPAddress.Parse("192.168.1.0"), Subnet: 24),
+            new IPNetwork(IPAddress.Parse("192.168.1.0"), 24),
+            "192.168.1.0/24",
+            "cidr",
+            NpgsqlDbType.Cidr);
+
+#pragma warning disable CS0618 // NpgsqlCidr is obsolete
+    [Test]
+    public Task NpgsqlCidr_as_Cidr()
+        => AssertType(
+            new NpgsqlCidr(IPAddress.Parse("192.168.1.0"), netmask: 24),
             "192.168.1.0/24",
             "cidr",
             NpgsqlDbType.Cidr,
-            isDefaultForWriting: false);
+            isDefaultForReading: false);
+#pragma warning restore CS0618
 
-#pragma warning disable 618  // For NpgsqlInet
     [Test]
     public Task Inet_v4_as_NpgsqlInet()
         => AssertType(
@@ -71,7 +88,6 @@ class NetworkTypeTests : MultiplexingTestBase
             "inet",
             NpgsqlDbType.Inet,
             isDefaultForReading: false);
-#pragma warning restore 618  // For NpgsqlInet
 
     [Test]
     public Task Macaddr()
@@ -120,11 +136,6 @@ class NetworkTypeTests : MultiplexingTestBase
         if (conn.PostgreSqlVersion < new Version(10, 0))
             Assert.Ignore("macaddr8 only supported on PostgreSQL 10 and above");
 
-        var exception = await AssertTypeUnsupportedWrite<PhysicalAddress, PostgresException>(
-            PhysicalAddress.Parse("08-00-2B-01-02-03-04-05"), "macaddr");
-
-        Assert.That(exception.Message, Does.StartWith("22P03:").And.Contain("1"));
+        await AssertTypeUnsupportedWrite<PhysicalAddress, ArgumentException>(PhysicalAddress.Parse("08-00-2B-01-02-03-04-05"), "macaddr");
     }
-
-    public NetworkTypeTests(MultiplexingMode multiplexingMode) : base(multiplexingMode) {}
 }

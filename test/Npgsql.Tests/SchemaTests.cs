@@ -10,7 +10,7 @@ using static Npgsql.Tests.TestUtil;
 
 namespace Npgsql.Tests;
 
-public class SchemaTests : SyncOrAsyncTestBase
+public class SchemaTests(SyncOrAsync syncOrAsync) : SyncOrAsyncTestBase(syncOrAsync)
 {
     [Test]
     public async Task MetaDataCollections()
@@ -47,7 +47,7 @@ public class SchemaTests : SyncOrAsyncTestBase
         Assert.That(collections1, Is.EquivalentTo(collections2));
     }
 
-    [Test, Description("Calling GetSchema(collectionName [, restrictions]) case insensive collectionName can be used")]
+    [Test, Description("Calling GetSchema(collectionName [, restrictions]) case insensitive collectionName can be used")]
     public async Task Case_insensitive_collection_name()
     {
         await using var conn = await OpenConnectionAsync();
@@ -225,6 +225,34 @@ CREATE DOMAIN {domainType} AS TEXT");
     }
 
     [Test]
+    public async Task Databases()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var database = await conn.ExecuteScalarAsync("SELECT current_database()");
+
+        var dataTable = await GetSchema(conn, "Databases");
+        var databases = dataTable.Rows
+            .Cast<DataRow>()
+            .Select(r => (string)r["database_name"])
+            .ToList();
+
+        Assert.That(databases, Does.Contain(database));
+    }
+
+    [Test]
+    public async Task Schemata()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var schema = await CreateTempSchema(conn);
+
+        var dataTable = await GetSchema(conn, "Schemata");
+        var row = dataTable.Rows.Cast<DataRow>().Single(r => (string)r["schema_name"] == schema);
+
+        Assert.That(row["catalog_name"], Is.EqualTo(await conn.ExecuteScalarAsync("SELECT current_database()")));
+        Assert.That(row["schema_owner"], Is.EqualTo(await conn.ExecuteScalarAsync("SELECT current_user")));
+    }
+
+    [Test]
     public async Task ForeignKeys()
     {
         await using var conn = await OpenConnectionAsync();
@@ -258,7 +286,7 @@ CREATE DOMAIN {domainType} AS TEXT");
         var table = await CreateTempTable(
             conn, "explicit_both NUMERIC(10,2), explicit_precision NUMERIC(10), implicit_both NUMERIC, integer INTEGER, text TEXT");
 
-        var dataTable = await GetSchema(conn, "Columns", new[] { null, null, table });
+        var dataTable = await GetSchema(conn, "Columns", [null, null, table]);
         var rows = dataTable.Rows.Cast<DataRow>().ToList();
 
         var explicitBoth = rows.Single(r => (string)r["column_name"] == "explicit_both");
@@ -311,7 +339,7 @@ CREATE DOMAIN {domainType} AS TEXT");
         await using var conn = await OpenConnectionAsync();
         var table = await CreateTempTable(conn, "bar INTEGER");
 
-        var dt = await GetSchema(conn, "Tables",  new[] { null, null, table });
+        var dt = await GetSchema(conn, "Tables", [null, null, table]);
         foreach (var row in dt.Rows.OfType<DataRow>())
             Assert.That(row["table_name"], Is.EqualTo(table));
     }
@@ -324,9 +352,22 @@ CREATE DOMAIN {domainType} AS TEXT");
 
         await conn.ExecuteNonQueryAsync($"CREATE VIEW {view} AS SELECT 8 AS foo");
 
-        var dt = await GetSchema(conn, "Views", new[] { null, null, view });
+        var dt = await GetSchema(conn, "Views", [null, null, view]);
         foreach (var row in dt.Rows.OfType<DataRow>())
             Assert.That(row["table_name"], Is.EqualTo(view));
+    }
+
+    [Test]
+    public async Task GetSchema_materialized_views_with_restrictions()
+    {
+        await using var conn = await OpenConnectionAsync();
+        var viewName = await GetTempMaterializedViewName(conn);
+
+        await conn.ExecuteNonQueryAsync($"CREATE MATERIALIZED VIEW {viewName} AS SELECT 8 AS foo");
+
+        var dt = await GetSchema(conn, "MaterializedViews", [null, viewName, null, null]);
+        foreach (var row in dt.Rows.OfType<DataRow>())
+            Assert.That(row["table_name"], Is.EqualTo(viewName));
     }
 
     [Test]
@@ -335,7 +376,7 @@ CREATE DOMAIN {domainType} AS TEXT");
         await using var conn = await OpenConnectionAsync();
         var table = await CreateTempTable(conn, "id INT PRIMARY KEY, f1 INT");
 
-        var dataTable = await GetSchema(conn, "CONSTRAINTCOLUMNS", new[] { null, null, table });
+        var dataTable = await GetSchema(conn, "CONSTRAINTCOLUMNS", [null, null, table]);
         var column = dataTable.Rows.Cast<DataRow>().Single();
 
         Assert.That(column["table_schema"], Is.EqualTo("public"));
@@ -350,7 +391,7 @@ CREATE DOMAIN {domainType} AS TEXT");
         await using var conn = await OpenConnectionAsync();
         var table = await CreateTempTable(conn, "id1 INT, id2 INT, f1 INT, PRIMARY KEY (id1, id2)");
 
-        var dataTable = await GetSchema(conn, "CONSTRAINTCOLUMNS", new[] { null, null, table });
+        var dataTable = await GetSchema(conn, "CONSTRAINTCOLUMNS", [null, null, table]);
         var columns = dataTable.Rows.Cast<DataRow>().OrderBy(r => r["ordinal_number"]).ToList();
 
         Assert.That(columns.All(r => r["table_schema"].Equals("public")));
@@ -369,7 +410,7 @@ CREATE DOMAIN {domainType} AS TEXT");
 
         var database = await conn.ExecuteScalarAsync("SELECT current_database()");
 
-        var dataTable = await GetSchema(conn, "CONSTRAINTCOLUMNS", new[] { null, null, table });
+        var dataTable = await GetSchema(conn, "CONSTRAINTCOLUMNS", [null, null, table]);
         var columns = dataTable.Rows.Cast<DataRow>().ToList();
 
         Assert.That(columns.All(r => r["constraint_catalog"].Equals(database)));
@@ -407,7 +448,7 @@ CREATE TABLE {table} (
 
         var database = await conn.ExecuteScalarAsync("SELECT current_database()");
 
-        var dataTable = await GetSchema(conn, "INDEXES", new[] { null, null, table });
+        var dataTable = await GetSchema(conn, "INDEXES", [null, null, table]);
         var index = dataTable.Rows.Cast<DataRow>().Single();
 
         Assert.That(index["table_schema"], Is.EqualTo("public"));
@@ -415,7 +456,7 @@ CREATE TABLE {table} (
         Assert.That(index["index_name"], Is.EqualTo(constraint));
         Assert.That(index["type_desc"], Is.EqualTo(""));
 
-        string[] indexColumnRestrictions = { null!, null!, table };
+        string[] indexColumnRestrictions = [null!, null!, table];
         var dataTable2 = await GetSchema(conn, "INDEXCOLUMNS", indexColumnRestrictions);
         var columns = dataTable2.Rows.Cast<DataRow>().ToList();
 
@@ -429,7 +470,7 @@ CREATE TABLE {table} (
         Assert.That(columns[0]["column_name"], Is.EqualTo("f1"));
         Assert.That(columns[1]["column_name"], Is.EqualTo("f2"));
 
-        string[] indexColumnRestrictions3 = { (string) database! , "public", table, constraint, "f1" };
+        string[] indexColumnRestrictions3 = [(string) database! , "public", table, constraint, "f1"];
         var dataTable3 = await GetSchema(conn, "INDEXCOLUMNS", indexColumnRestrictions3);
         var columns3 = dataTable3.Rows.Cast<DataRow>().ToList();
         Assert.That(columns3.Count, Is.EqualTo(1));
@@ -492,7 +533,7 @@ xid xid,
 cid cid";
         var table = await CreateTempTable(conn, columnDefinition);
 
-        var columnsSchema = await GetSchema(conn, "Columns", new[] { null, null, table });
+        var columnsSchema = await GetSchema(conn, "Columns", [null, null, table]);
         var columns = columnsSchema.Rows.Cast<DataRow>().ToList();
 
         var dataTypes = await GetSchema(conn, DbMetaDataCollectionNames.DataTypes);
@@ -513,7 +554,7 @@ cid cid";
 CREATE TYPE {enumName} AS ENUM ('red', 'yellow', 'blue');
 CREATE TABLE {table} (color {enumName});");
 
-        var dataTable = await GetSchema(conn, "Columns", new[] { null, null, table });
+        var dataTable = await GetSchema(conn, "Columns", [null, null, table]);
         var row = dataTable.Rows.Cast<DataRow>().Single();
         Assert.That(row["data_type"], Is.EqualTo(enumName));
     }
@@ -530,12 +571,18 @@ CREATE TABLE {table} (color {enumName});");
 CREATE TYPE {schema}.{enumName} AS ENUM ('red', 'yellow', 'blue');
 CREATE TABLE {table} (color {schema}.{enumName});");
 
-        var dataTable = await GetSchema(conn, "Columns", new[] { null, null, table });
+        var dataTable = await GetSchema(conn, "Columns", [null, null, table]);
         var row = dataTable.Rows.Cast<DataRow>().Single();
         Assert.That(row["data_type"], Is.EqualTo($"{schema}.{enumName}"));
     }
 
-    public SchemaTests(SyncOrAsync syncOrAsync) : base(syncOrAsync) { }
+    [Test]
+    public async Task SlimBuilder_introspection_without_unsupported_type_exceptions()
+    {
+        await using var dataSource = new NpgsqlSlimDataSourceBuilder(ConnectionString).Build();
+        await using var conn = await dataSource.OpenConnectionAsync();
+        Assert.That(() => GetSchema(conn, DbMetaDataCollectionNames.DataTypes), Throws.Nothing);
+    }
 
     // ReSharper disable MethodHasAsyncOverload
     async Task<DataTable> GetSchema(NpgsqlConnection conn)
